@@ -67,7 +67,7 @@ Deno.serve(async (req: Request) => {
       .from('profiles')
       .select('role')
       .eq('id', user.id)
-      .single();
+      .maybeSingle();
 
     if (profile?.role !== 'admin') {
       return new Response(
