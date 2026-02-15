@@ -155,7 +155,7 @@ export default function DashboardView() {
   async function loadMailboxStats(startDate: Date, endDate: Date, previousStartDate: Date, previousEndDate: Date) {
     const { data: mailboxes } = await supabase
       .from('mailboxes')
-      .select('id, name, email')
+      .select('id, name, email_address')
       .order('name');
 
     if (!mailboxes) return;
@@ -208,7 +208,7 @@ export default function DashboardView() {
       stats.push({
         mailbox_id: mailbox.id,
         mailbox_name: mailbox.name,
-        mailbox_email: mailbox.email,
+        mailbox_email: (mailbox as any).email_address,
         total: total ?? 0,
         open: open ?? 0,
         waiting: waiting ?? 0,
