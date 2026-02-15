@@ -432,7 +432,6 @@ Deno.serve(async (req: Request) => {
   try {
     const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     const body = await req.json().catch(() => ({}));
-    const limit = body.limit || 100;
     const maxEmailsPerMailbox = 100;
     let q = sb.from("mailboxes").select("*").eq("is_active", true);
     if (body.mailbox_id) q = q.eq("id", body.mailbox_id);
@@ -440,7 +439,7 @@ Deno.serve(async (req: Request) => {
     if (e) throw new Error(e.message);
     if (!mbs?.length) return new Response(JSON.stringify({ error: "No mailboxes" }), { status: 404, headers: { ...cors, "Content-Type": "application/json" } });
 
-    console.log(`Starting sync with limit: ${limit} emails per mailbox, max stored: ${maxEmailsPerMailbox}`);
+    console.log(`Starting sync - searching all emails, keeping ${maxEmailsPerMailbox} most recent per mailbox`);
 
     const archiveDate = new Date();
     archiveDate.setDate(archiveDate.getDate() - 30);
@@ -519,10 +518,9 @@ Deno.serve(async (req: Request) => {
         let errors = 0;
 
         const sortedSeqs = [...allSeqs].sort((a, b) => b - a);
-        const seqs = sortedSeqs.slice(0, limit);
-        console.log(`[${mb.name}] Total emails on server: ${tot}, processing ${seqs.length} most recent of ${allSeqs.length} sequences`);
+        console.log(`[${mb.name}] Total emails on server: ${tot}, processing all ${sortedSeqs.length} emails`);
 
-        for (const seq of seqs) {
+        for (const seq of sortedSeqs) {
           try {
             const raw = await imap.fetch(seq);
             if (!raw) {
