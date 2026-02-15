@@ -432,14 +432,15 @@ Deno.serve(async (req: Request) => {
   try {
     const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     const body = await req.json().catch(() => ({}));
-    const limit = body.limit || 20;
+    const limit = body.limit || 100;
+    const maxEmailsPerMailbox = 100;
     let q = sb.from("mailboxes").select("*").eq("is_active", true);
     if (body.mailbox_id) q = q.eq("id", body.mailbox_id);
     const { data: mbs, error: e } = await q;
     if (e) throw new Error(e.message);
     if (!mbs?.length) return new Response(JSON.stringify({ error: "No mailboxes" }), { status: 404, headers: { ...cors, "Content-Type": "application/json" } });
 
-    console.log(`Starting sync with limit: ${limit} emails per mailbox`);
+    console.log(`Starting sync with limit: ${limit} emails per mailbox, max stored: ${maxEmailsPerMailbox}`);
 
     const archiveDate = new Date();
     archiveDate.setDate(archiveDate.getDate() - 30);
@@ -451,6 +452,39 @@ Deno.serve(async (req: Request) => {
     const results: any[] = [];
 
     for (const mb of mbs) {
+      const { count: emailCount } = await sb
+        .from("emails")
+        .select("*", { count: "exact", head: true })
+        .eq("mailbox_id", mb.id);
+
+      console.log(`[${mb.name}] Current email count: ${emailCount || 0}`);
+
+      if (emailCount && emailCount > maxEmailsPerMailbox) {
+        const toArchive = emailCount - maxEmailsPerMailbox;
+        console.log(`[${mb.name}] Archiving ${toArchive} oldest emails`);
+
+        const { data: oldEmails } = await sb
+          .from("emails")
+          .select("ticket_id")
+          .eq("mailbox_id", mb.id)
+          .order("received_at", { ascending: true })
+          .limit(toArchive);
+
+        if (oldEmails && oldEmails.length > 0) {
+          const ticketIds = [...new Set(oldEmails.map(e => e.ticket_id).filter(Boolean))];
+
+          if (ticketIds.length > 0) {
+            await sb
+              .from("tickets")
+              .update({
+                archived: true,
+                archived_at: new Date().toISOString()
+              })
+              .in("id", ticketIds);
+          }
+        }
+      }
+
       if (mb.provider_type === "ovh") {
         const result = await syncOvhMailbox(mb, sb);
         results.push(result);
