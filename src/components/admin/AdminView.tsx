@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Server, Users, FolderOpen, Shield, Settings, Activity, Tag, Lock } from 'lucide-react';
+import { Server, Users, FolderOpen, Shield, Settings, Activity, Tag, Lock, Sparkles } from 'lucide-react';
 import Header from '../layout/Header';
 import MailboxManager from './MailboxManager';
 import UserManager from './UserManager';
@@ -9,11 +9,13 @@ import AuditLogViewer from './AuditLogViewer';
 import SettingsManager from './SettingsManager';
 import MailboxDiagnostics from './MailboxDiagnostics';
 import SecurityManager from './SecurityManager';
+import AiSearchManager from './AiSearchManager';
 import { useAuth } from '../../contexts/AuthContext';
 
 const tabs = [
   { id: 'mailboxes', label: 'Boîtes mail', icon: Server },
   { id: 'diagnostics', label: 'Diagnostics', icon: Activity },
+  { id: 'ai-search', label: 'Recherche IA', icon: Sparkles },
   { id: 'users', label: 'Utilisateurs', icon: Users },
   { id: 'categories', label: 'Catégories', icon: FolderOpen },
   { id: 'status-priority', label: 'Statuts & Priorités', icon: Tag },
@@ -54,6 +56,7 @@ export default function AdminView() {
       <div className="px-6 pb-6">
         {activeTab === 'mailboxes' && <MailboxManager />}
         {activeTab === 'diagnostics' && <MailboxDiagnostics />}
+        {activeTab === 'ai-search' && <AiSearchManager />}
         {activeTab === 'users' && <UserManager />}
         {activeTab === 'categories' && <CategoryManager />}
         {activeTab === 'status-priority' && <StatusPriorityManager />}

@@ -9,6 +9,7 @@ import Badge from '../ui/Badge';
 import LoadingSpinner from '../ui/LoadingSpinner';
 import EmptyState from '../ui/EmptyState';
 import NewEmailModal from '../email/NewEmailModal';
+import AiSearchBar from '../search/AiSearchBar';
 import { supabase } from '../../lib/supabase';
 import { getStatusConfig, getPriorityConfig } from '../../lib/constants';
 import type { Ticket, Category, Mailbox } from '../../lib/types';
@@ -264,9 +265,22 @@ export default function InboxView() {
   const allPageSelected = pageIds.length > 0 && pageIds.every(id => selected.has(id));
   const somePageSelected = pageIds.some(id => selected.has(id)) && !allPageSelected;
 
+  function handleAiSearchResultClick(emailId: string) {
+    const ticket = tickets.find(t => {
+      return t.id === emailId;
+    });
+    if (ticket) {
+      navigate(`/inbox/${ticket.id}`);
+    }
+  }
+
   return (
     <div className="min-h-screen flex flex-col">
       <Header title="Inbox" subtitle={`${filtered.length} ticket${filtered.length !== 1 ? 's' : ''}`} />
+
+      <div className="bg-slate-50 border-b border-slate-200 px-5 py-4">
+        <AiSearchBar onResultClick={handleAiSearchResultClick} />
+      </div>
 
       <div className="bg-white border-b border-slate-200 px-5 py-2 flex items-center justify-between">
         <div className="flex items-center gap-3">

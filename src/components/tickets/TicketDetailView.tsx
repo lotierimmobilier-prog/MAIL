@@ -10,6 +10,7 @@ import InternalNotes from './InternalNotes';
 import DraftComposer from '../drafts/DraftComposer';
 import EmailComposer from '../email/EmailComposer';
 import AiResponseSuggestions from './AiResponseSuggestions';
+import EmailSummary from '../search/EmailSummary';
 import LoadingSpinner from '../ui/LoadingSpinner';
 import { supabase } from '../../lib/supabase';
 import type { Ticket, Email, Profile, Category, AiClassification, InternalNote, EmailTemplate, Attachment } from '../../lib/types';
@@ -143,6 +144,10 @@ export default function TicketDetailView() {
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
           <div className="xl:col-span-2 space-y-6">
             <ConversationThread emails={emails} notes={notes} />
+
+            {emails.length > 0 && emails[0] && (
+              <EmailSummary emailId={emails[0].id} />
+            )}
 
             {emails.length > 0 && (
               <AiResponseSuggestions
