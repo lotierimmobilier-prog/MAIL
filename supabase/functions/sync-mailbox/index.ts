@@ -399,8 +399,9 @@ class Imap {
     return m ? m[1].trim().split(/\s+/).filter(Boolean).map(Number) : [];
   }
 
-  async searchSeq(): Promise<number[]> {
-    const r = await this.cmd(`SEARCH ALL`);
+  async searchSeq(since?: Date): Promise<number[]> {
+    const searchCmd = since ? `SEARCH SINCE ${imapDate(since)}` : `SEARCH ALL`;
+    const r = await this.cmd(searchCmd);
     const m = r.match(/\*\s+SEARCH\s+([\d\s]+)/);
     return m ? m[1].trim().split(/\s+/).filter(Boolean).map(Number) : [];
   }
@@ -512,13 +513,17 @@ Deno.serve(async (req: Request) => {
         await imap.open(mb.imap_host, mb.imap_port);
         await imap.login(mb.username, password);
         const tot = await imap.select("INBOX");
-        const allSeqs = await imap.searchSeq();
+
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+        const allSeqs = await imap.searchSeq(thirtyDaysAgo);
         let synced = 0;
         let skipped = 0;
         let errors = 0;
 
         const sortedSeqs = [...allSeqs].sort((a, b) => b - a);
-        console.log(`[${mb.name}] Total emails on server: ${tot}, processing all ${sortedSeqs.length} emails`);
+        console.log(`[${mb.name}] Total emails on server: ${tot}, processing ${sortedSeqs.length} emails from last 30 days`);
 
         for (const seq of sortedSeqs) {
           try {
