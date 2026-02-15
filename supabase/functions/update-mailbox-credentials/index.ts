@@ -97,6 +97,7 @@ Deno.serve(async (req: Request) => {
       payload.imap_port = 993;
       payload.smtp_host = 'ssl0.ovh.net';
       payload.smtp_port = 465;
+      payload.smtp_security = 'SSL';
       payload.username = body.email_address;
       payload.use_tls = true;
       payload.polling_interval_seconds = 60;
