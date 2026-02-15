@@ -1,37 +1,139 @@
 import { useEffect, useState } from 'react';
 import { Inbox, CheckCircle2, Clock, AlertTriangle, ArrowRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { format } from 'date-fns';
+import { format, startOfDay, startOfWeek, startOfQuarter, startOfYear, endOfDay, subDays, subWeeks, subQuarters, subYears } from 'date-fns';
 import Header from '../layout/Header';
 import StatsCards from './StatsCards';
 import TicketChart from './TicketChart';
+import PeriodFilter, { type Period } from './PeriodFilter';
+import MailboxStats from './MailboxStats';
 import Badge from '../ui/Badge';
 import { supabase } from '../../lib/supabase';
 import { getStatusConfig, getPriorityConfig } from '../../lib/constants';
 import type { Ticket } from '../../lib/types';
 
+interface MailboxStat {
+  mailbox_id: string;
+  mailbox_name: string;
+  mailbox_email: string;
+  total: number;
+  open: number;
+  waiting: number;
+  urgent: number;
+  change: number;
+}
+
 export default function DashboardView() {
   const navigate = useNavigate();
+  const [selectedPeriod, setSelectedPeriod] = useState<Period>('week');
   const [recentTickets, setRecentTickets] = useState<Ticket[]>([]);
   const [counts, setCounts] = useState({ total: 0, open: 0, waiting: 0, urgent: 0 });
+  const [previousCounts, setPreviousCounts] = useState({ total: 0, open: 0, waiting: 0, urgent: 0 });
+  const [mailboxStats, setMailboxStats] = useState<MailboxStat[]>([]);
 
   useEffect(() => {
     loadDashboard();
-  }, []);
+  }, [selectedPeriod]);
+
+  function getPeriodDates(period: Period) {
+    const now = new Date();
+    let startDate: Date;
+    let endDate = endOfDay(now);
+    let previousStartDate: Date;
+    let previousEndDate: Date;
+
+    switch (period) {
+      case 'day':
+        startDate = startOfDay(now);
+        previousStartDate = startOfDay(subDays(now, 1));
+        previousEndDate = endOfDay(subDays(now, 1));
+        break;
+      case 'week':
+        startDate = startOfWeek(now, { weekStartsOn: 1 });
+        previousStartDate = startOfWeek(subWeeks(now, 1), { weekStartsOn: 1 });
+        previousEndDate = endOfDay(subDays(startDate, 1));
+        break;
+      case 'quarter':
+        startDate = startOfQuarter(now);
+        previousStartDate = startOfQuarter(subQuarters(now, 1));
+        previousEndDate = endOfDay(subDays(startDate, 1));
+        break;
+      case 'year':
+        startDate = startOfYear(now);
+        previousStartDate = startOfYear(subYears(now, 1));
+        previousEndDate = endOfDay(subDays(startDate, 1));
+        break;
+    }
+
+    return { startDate, endDate, previousStartDate, previousEndDate };
+  }
 
   async function loadDashboard() {
+    const { startDate, endDate, previousStartDate, previousEndDate } = getPeriodDates(selectedPeriod);
+
     const { data: tickets } = await supabase
       .from('tickets')
       .select('*, category:categories(name, color), assignee:profiles!tickets_assignee_id_fkey(full_name)')
+      .gte('created_at', startDate.toISOString())
+      .lte('created_at', endDate.toISOString())
       .order('last_message_at', { ascending: false })
       .limit(8);
 
     if (tickets) setRecentTickets(tickets);
 
-    const { count: total } = await supabase.from('tickets').select('*', { count: 'exact', head: true });
-    const { count: open } = await supabase.from('tickets').select('*', { count: 'exact', head: true }).in('status', ['new', 'qualify', 'assigned', 'in_progress']);
-    const { count: waiting } = await supabase.from('tickets').select('*', { count: 'exact', head: true }).eq('status', 'waiting');
-    const { count: urgent } = await supabase.from('tickets').select('*', { count: 'exact', head: true }).eq('priority', 'urgent');
+    const { count: total } = await supabase
+      .from('tickets')
+      .select('*', { count: 'exact', head: true })
+      .gte('created_at', startDate.toISOString())
+      .lte('created_at', endDate.toISOString());
+
+    const { count: open } = await supabase
+      .from('tickets')
+      .select('*', { count: 'exact', head: true })
+      .gte('created_at', startDate.toISOString())
+      .lte('created_at', endDate.toISOString())
+      .in('status', ['new', 'qualify', 'assigned', 'in_progress']);
+
+    const { count: waiting } = await supabase
+      .from('tickets')
+      .select('*', { count: 'exact', head: true })
+      .gte('created_at', startDate.toISOString())
+      .lte('created_at', endDate.toISOString())
+      .eq('status', 'waiting');
+
+    const { count: urgent } = await supabase
+      .from('tickets')
+      .select('*', { count: 'exact', head: true })
+      .gte('created_at', startDate.toISOString())
+      .lte('created_at', endDate.toISOString())
+      .eq('priority', 'urgent');
+
+    const { count: prevTotal } = await supabase
+      .from('tickets')
+      .select('*', { count: 'exact', head: true })
+      .gte('created_at', previousStartDate.toISOString())
+      .lte('created_at', previousEndDate.toISOString());
+
+    const { count: prevOpen } = await supabase
+      .from('tickets')
+      .select('*', { count: 'exact', head: true })
+      .gte('created_at', previousStartDate.toISOString())
+      .lte('created_at', previousEndDate.toISOString())
+      .in('status', ['new', 'qualify', 'assigned', 'in_progress']);
+
+    const { count: prevWaiting } = await supabase
+      .from('tickets')
+      .select('*', { count: 'exact', head: true })
+      .gte('created_at', previousStartDate.toISOString())
+      .lte('created_at', previousEndDate.toISOString())
+      .eq('status', 'waiting');
+
+    const { count: prevUrgent } = await supabase
+      .from('tickets')
+      .select('*', { count: 'exact', head: true })
+      .gte('created_at', previousStartDate.toISOString())
+      .lte('created_at', previousEndDate.toISOString())
+      .eq('priority', 'urgent');
 
     setCounts({
       total: total ?? 0,
@@ -39,20 +141,133 @@ export default function DashboardView() {
       waiting: waiting ?? 0,
       urgent: urgent ?? 0,
     });
+
+    setPreviousCounts({
+      total: prevTotal ?? 0,
+      open: prevOpen ?? 0,
+      waiting: prevWaiting ?? 0,
+      urgent: prevUrgent ?? 0,
+    });
+
+    await loadMailboxStats(startDate, endDate, previousStartDate, previousEndDate);
+  }
+
+  async function loadMailboxStats(startDate: Date, endDate: Date, previousStartDate: Date, previousEndDate: Date) {
+    const { data: mailboxes } = await supabase
+      .from('mailboxes')
+      .select('id, name, email')
+      .order('name');
+
+    if (!mailboxes) return;
+
+    const stats: MailboxStat[] = [];
+
+    for (const mailbox of mailboxes) {
+      const { count: total } = await supabase
+        .from('tickets')
+        .select('*', { count: 'exact', head: true })
+        .eq('mailbox_id', mailbox.id)
+        .gte('created_at', startDate.toISOString())
+        .lte('created_at', endDate.toISOString());
+
+      const { count: open } = await supabase
+        .from('tickets')
+        .select('*', { count: 'exact', head: true })
+        .eq('mailbox_id', mailbox.id)
+        .gte('created_at', startDate.toISOString())
+        .lte('created_at', endDate.toISOString())
+        .in('status', ['new', 'qualify', 'assigned', 'in_progress']);
+
+      const { count: waiting } = await supabase
+        .from('tickets')
+        .select('*', { count: 'exact', head: true })
+        .eq('mailbox_id', mailbox.id)
+        .gte('created_at', startDate.toISOString())
+        .lte('created_at', endDate.toISOString())
+        .eq('status', 'waiting');
+
+      const { count: urgent } = await supabase
+        .from('tickets')
+        .select('*', { count: 'exact', head: true })
+        .eq('mailbox_id', mailbox.id)
+        .gte('created_at', startDate.toISOString())
+        .lte('created_at', endDate.toISOString())
+        .eq('priority', 'urgent');
+
+      const { count: prevTotal } = await supabase
+        .from('tickets')
+        .select('*', { count: 'exact', head: true })
+        .eq('mailbox_id', mailbox.id)
+        .gte('created_at', previousStartDate.toISOString())
+        .lte('created_at', previousEndDate.toISOString());
+
+      const change = prevTotal && prevTotal > 0
+        ? Math.round(((total ?? 0) - prevTotal) / prevTotal * 100)
+        : 0;
+
+      stats.push({
+        mailbox_id: mailbox.id,
+        mailbox_name: mailbox.name,
+        mailbox_email: mailbox.email,
+        total: total ?? 0,
+        open: open ?? 0,
+        waiting: waiting ?? 0,
+        urgent: urgent ?? 0,
+        change,
+      });
+    }
+
+    setMailboxStats(stats);
+  }
+
+  function calculateChange(current: number, previous: number): number {
+    if (previous === 0) return current > 0 ? 100 : 0;
+    return Math.round((current - previous) / previous * 100);
   }
 
   const stats = [
-    { label: 'Total des tickets', value: counts.total, icon: Inbox, color: '#0891B2', change: 12 },
-    { label: 'Tickets ouverts', value: counts.open, icon: CheckCircle2, color: '#3B82F6', change: -5 },
-    { label: 'En attente de réponse', value: counts.waiting, icon: Clock, color: '#F59E0B', change: 3 },
-    { label: 'Urgent', value: counts.urgent, icon: AlertTriangle, color: '#EF4444', change: -8 },
+    {
+      label: 'Total des tickets',
+      value: counts.total,
+      icon: Inbox,
+      color: '#0891B2',
+      change: calculateChange(counts.total, previousCounts.total)
+    },
+    {
+      label: 'Tickets ouverts',
+      value: counts.open,
+      icon: CheckCircle2,
+      color: '#3B82F6',
+      change: calculateChange(counts.open, previousCounts.open)
+    },
+    {
+      label: 'En attente de réponse',
+      value: counts.waiting,
+      icon: Clock,
+      color: '#F59E0B',
+      change: calculateChange(counts.waiting, previousCounts.waiting)
+    },
+    {
+      label: 'Urgent',
+      value: counts.urgent,
+      icon: AlertTriangle,
+      color: '#EF4444',
+      change: calculateChange(counts.urgent, previousCounts.urgent)
+    },
   ];
 
   return (
     <div className="min-h-screen">
       <Header title="Dashboard" subtitle={format(new Date(), 'EEEE, MMMM d, yyyy')} />
       <div className="p-6 space-y-6">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-slate-900">Vue d'ensemble</h2>
+          <PeriodFilter selectedPeriod={selectedPeriod} onChange={setSelectedPeriod} />
+        </div>
+
         <StatsCards stats={stats} />
+
+        <MailboxStats stats={mailboxStats} />
 
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
           <div className="xl:col-span-2">
