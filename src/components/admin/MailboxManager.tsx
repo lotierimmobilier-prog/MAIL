@@ -112,7 +112,8 @@ export default function MailboxManager() {
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.error || 'Failed to save mailbox');
+        console.error('Server error:', error);
+        throw new Error(error.details || error.error || 'Failed to save mailbox');
       }
 
       setEditOpen(false);

@@ -169,18 +169,30 @@ Deno.serve(async (req: Request) => {
         .update(payload)
         .eq('id', body.mailboxId)
         .select()
-        .single();
+        .maybeSingle();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Database update error:', error);
+        throw new Error(`Database error: ${error.message}`);
+      }
+      if (!data) {
+        throw new Error('Mailbox not found');
+      }
       result = data;
     } else {
       const { data, error } = await supabaseAdmin
         .from('mailboxes')
         .insert(payload)
         .select()
-        .single();
+        .maybeSingle();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Database insert error:', error);
+        throw new Error(`Database error: ${error.message}`);
+      }
+      if (!data) {
+        throw new Error('Failed to create mailbox');
+      }
       result = data;
     }
 
