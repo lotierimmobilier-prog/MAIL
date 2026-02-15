@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { format } from 'date-fns';
-import { ChevronDown, Plus, Eye, EyeOff, Mail, Send, Settings as SettingsIcon } from 'lucide-react';
+import { ChevronDown, Plus, Eye, EyeOff, Mail, Send, Settings as SettingsIcon, Trash2 } from 'lucide-react';
 import Badge from '../ui/Badge';
 import Modal from '../ui/Modal';
 import { supabase } from '../../lib/supabase';
@@ -140,6 +140,37 @@ export default function UserManager() {
     load();
   }
 
+  async function handleDeleteUser(user: Profile) {
+    if (!confirm(`Êtes-vous sûr de vouloir supprimer l'utilisateur "${user.full_name || user.email}" ?\n\nCette action est irréversible et supprimera:\n- Le profil utilisateur\n- Le compte d'authentification\n- Toutes les permissions associées`)) {
+      return;
+    }
+
+    try {
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .delete()
+        .eq('id', user.id);
+
+      if (profileError) {
+        console.error('Error deleting profile:', profileError);
+        alert('Erreur lors de la suppression du profil');
+        return;
+      }
+
+      const { error: authError } = await supabase.auth.admin.deleteUser(user.id);
+
+      if (authError) {
+        console.error('Error deleting auth user:', authError);
+      }
+
+      alert('Utilisateur supprimé avec succès');
+      load();
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      alert('Erreur lors de la suppression de l\'utilisateur');
+    }
+  }
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
@@ -207,12 +238,22 @@ export default function UserManager() {
                   {format(new Date(user.created_at), 'MMM d, yyyy')}
                 </td>
                 <td className="px-4 py-3 text-right">
-                  <button
-                    onClick={() => toggleActive(user)}
-                    className="text-xs font-medium text-slate-500 hover:text-slate-700 transition"
-                  >
-                    {user.is_active ? 'Désactiver' : 'Activer'}
-                  </button>
+                  <div className="flex items-center justify-end gap-3">
+                    <button
+                      onClick={() => toggleActive(user)}
+                      className="text-xs font-medium text-slate-500 hover:text-slate-700 transition"
+                    >
+                      {user.is_active ? 'Désactiver' : 'Activer'}
+                    </button>
+                    <button
+                      onClick={() => handleDeleteUser(user)}
+                      className="flex items-center gap-1 text-xs font-medium text-red-500 hover:text-red-700 transition"
+                      title="Supprimer l'utilisateur"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Supprimer
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
