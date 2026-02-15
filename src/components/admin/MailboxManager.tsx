@@ -101,6 +101,9 @@ export default function MailboxManager() {
         return;
       }
 
+      console.log('Sending request to:', apiUrl);
+      console.log('Payload:', { ...payload, password: payload.password ? '***' : undefined });
+
       const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
@@ -110,10 +113,23 @@ export default function MailboxManager() {
         body: JSON.stringify(payload),
       });
 
+      console.log('Response status:', response.status);
+
       if (!response.ok) {
-        const error = await response.json();
-        console.error('Server error:', error);
-        throw new Error(error.details || error.error || 'Failed to save mailbox');
+        const contentType = response.headers.get('content-type');
+        let errorMessage = 'Failed to save mailbox';
+
+        if (contentType?.includes('application/json')) {
+          const error = await response.json();
+          console.error('Server error response:', error);
+          errorMessage = error.details || error.error || errorMessage;
+        } else {
+          const errorText = await response.text();
+          console.error('Server error text:', errorText);
+          errorMessage = errorText || errorMessage;
+        }
+
+        throw new Error(errorMessage);
       }
 
       setEditOpen(false);

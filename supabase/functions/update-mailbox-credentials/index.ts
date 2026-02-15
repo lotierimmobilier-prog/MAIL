@@ -102,29 +102,36 @@ Deno.serve(async (req: Request) => {
       payload.use_tls = true;
       payload.polling_interval_seconds = 60;
 
-      if (body.ovh_consumer_key) {
-        const cryptoUrl = `${supabaseUrl}/functions/v1/crypto-credentials`;
-        const encryptRes = await fetch(cryptoUrl, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            operation: 'encrypt',
-            data: body.ovh_consumer_key,
-            mailboxId: body.mailboxId || 'new'
-          })
-        });
+      if (body.ovh_consumer_key && body.ovh_consumer_key.trim() !== '') {
+        try {
+          const cryptoUrl = `${supabaseUrl}/functions/v1/crypto-credentials`;
+          const encryptRes = await fetch(cryptoUrl, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              operation: 'encrypt',
+              data: body.ovh_consumer_key,
+              mailboxId: body.mailboxId || 'new'
+            })
+          });
 
-        if (!encryptRes.ok) {
-          throw new Error('Failed to encrypt OVH consumer key');
+          if (!encryptRes.ok) {
+            const errText = await encryptRes.text();
+            console.error('OVH key encryption failed:', errText);
+            throw new Error('Failed to encrypt OVH consumer key');
+          }
+
+          const encryptData = await encryptRes.json();
+          payload.ovh_consumer_key_secure = encryptData.result;
+          payload.encryption_version = encryptData.version;
+          payload.encrypted_at = new Date().toISOString();
+        } catch (encryptError: any) {
+          console.error('OVH encryption error:', encryptError);
+          throw new Error(`OVH encryption failed: ${encryptError.message}`);
         }
-
-        const encryptData = await encryptRes.json();
-        payload.ovh_consumer_key_secure = encryptData.result;
-        payload.encryption_version = encryptData.version;
-        payload.encrypted_at = new Date().toISOString();
       }
     } else {
       payload.imap_host = body.imap_host;
@@ -136,29 +143,36 @@ Deno.serve(async (req: Request) => {
       payload.use_tls = body.use_tls !== undefined ? body.use_tls : true;
       payload.polling_interval_seconds = body.polling_interval_seconds || 60;
 
-      if (body.password) {
-        const cryptoUrl = `${supabaseUrl}/functions/v1/crypto-credentials`;
-        const encryptRes = await fetch(cryptoUrl, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            operation: 'encrypt',
-            data: body.password,
-            mailboxId: body.mailboxId || 'new'
-          })
-        });
+      if (body.password && body.password.trim() !== '') {
+        try {
+          const cryptoUrl = `${supabaseUrl}/functions/v1/crypto-credentials`;
+          const encryptRes = await fetch(cryptoUrl, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              operation: 'encrypt',
+              data: body.password,
+              mailboxId: body.mailboxId || 'new'
+            })
+          });
 
-        if (!encryptRes.ok) {
-          throw new Error('Failed to encrypt password');
+          if (!encryptRes.ok) {
+            const errText = await encryptRes.text();
+            console.error('Encryption failed:', errText);
+            throw new Error('Failed to encrypt password');
+          }
+
+          const encryptData = await encryptRes.json();
+          payload.encrypted_password_secure = encryptData.result;
+          payload.encryption_version = encryptData.version;
+          payload.encrypted_at = new Date().toISOString();
+        } catch (encryptError: any) {
+          console.error('Encryption error:', encryptError);
+          throw new Error(`Encryption failed: ${encryptError.message}`);
         }
-
-        const encryptData = await encryptRes.json();
-        payload.encrypted_password_secure = encryptData.result;
-        payload.encryption_version = encryptData.version;
-        payload.encrypted_at = new Date().toISOString();
       }
     }
 
