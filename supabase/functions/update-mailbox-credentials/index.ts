@@ -105,11 +105,13 @@ Deno.serve(async (req: Request) => {
       if (body.ovh_consumer_key && body.ovh_consumer_key.trim() !== '') {
         try {
           const cryptoUrl = `${supabaseUrl}/functions/v1/crypto-credentials`;
+          const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
           const encryptRes = await fetch(cryptoUrl, {
             method: 'POST',
             headers: {
-              'Authorization': `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+              'Authorization': `Bearer ${serviceKey}`,
               'Content-Type': 'application/json',
+              'apikey': Deno.env.get("SUPABASE_ANON_KEY")!,
             },
             body: JSON.stringify({
               operation: 'encrypt',
@@ -146,11 +148,13 @@ Deno.serve(async (req: Request) => {
       if (body.password && body.password.trim() !== '') {
         try {
           const cryptoUrl = `${supabaseUrl}/functions/v1/crypto-credentials`;
+          const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
           const encryptRes = await fetch(cryptoUrl, {
             method: 'POST',
             headers: {
-              'Authorization': `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+              'Authorization': `Bearer ${serviceKey}`,
               'Content-Type': 'application/json',
+              'apikey': Deno.env.get("SUPABASE_ANON_KEY")!,
             },
             body: JSON.stringify({
               operation: 'encrypt',
