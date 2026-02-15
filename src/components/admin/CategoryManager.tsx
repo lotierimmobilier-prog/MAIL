@@ -89,10 +89,9 @@ export default function CategoryManager() {
 
     setClassifying(true);
     try {
-      const { data: session } = await supabase.auth.getSession();
-      const token = session?.session?.access_token;
+      const { data: { session } } = await supabase.auth.getSession();
 
-      if (!token) {
+      if (!session?.access_token) {
         alert('Session expirée, veuillez vous reconnecter');
         return;
       }
@@ -101,7 +100,7 @@ export default function CategoryManager() {
       const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${token}`,
+          'Authorization': `Bearer ${session.access_token}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ forceAll: false })
