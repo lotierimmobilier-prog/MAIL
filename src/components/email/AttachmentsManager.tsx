@@ -69,7 +69,7 @@ export default function AttachmentsManager({
         const fileName = `${Math.random().toString(36).substring(2)}_${Date.now()}.${fileExt}`;
         const filePath = `attachments/${fileName}`;
 
-        const { error: uploadError } = await supabase.storage
+        const { data: uploadData, error: uploadError } = await supabase.storage
           .from('attachments')
           .upload(filePath, file, {
             cacheControl: '3600',
@@ -78,7 +78,13 @@ export default function AttachmentsManager({
 
         if (uploadError) {
           console.error('Upload error:', uploadError);
-          alert(`Erreur lors du téléchargement de ${file.name}`);
+          alert(`Erreur lors du téléchargement de ${file.name}: ${uploadError.message}`);
+          continue;
+        }
+
+        if (!uploadData) {
+          console.error('No upload data returned');
+          alert(`Erreur: aucune donnée retournée pour ${file.name}`);
           continue;
         }
 
@@ -164,7 +170,7 @@ export default function AttachmentsManager({
         const fileName = `${Math.random().toString(36).substring(2)}_${Date.now()}.${fileExt}`;
         const filePath = `attachments/${fileName}`;
 
-        const { error: uploadError } = await supabase.storage
+        const { data: uploadData, error: uploadError } = await supabase.storage
           .from('attachments')
           .upload(filePath, file, {
             cacheControl: '3600',
@@ -173,7 +179,13 @@ export default function AttachmentsManager({
 
         if (uploadError) {
           console.error('Upload error:', uploadError);
-          alert(`Erreur lors du téléchargement de ${file.name}`);
+          alert(`Erreur lors du téléchargement de ${file.name}: ${uploadError.message}`);
+          continue;
+        }
+
+        if (!uploadData) {
+          console.error('No upload data returned');
+          alert(`Erreur: aucune donnée retournée pour ${file.name}`);
           continue;
         }
 
@@ -247,11 +259,11 @@ export default function AttachmentsManager({
       </div>
 
       {attachments.length > 0 && (
-        <div className="space-y-2">
+        <div className="mt-3 space-y-2">
           {attachments.map((attachment) => (
             <div
               key={attachment.id}
-              className="flex items-center gap-3 p-2 bg-slate-50 border border-slate-200 rounded-lg"
+              className="flex items-center gap-3 p-2 bg-white border border-slate-200 rounded-lg"
             >
               <div className="flex-shrink-0 text-slate-400">
                 {getFileIcon(attachment.content_type)}
