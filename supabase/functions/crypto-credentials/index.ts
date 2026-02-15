@@ -39,16 +39,24 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const encryptionKey = Deno.env.get("ENCRYPTION_KEY");
+    let encryptionKey = Deno.env.get("ENCRYPTION_KEY");
     if (!encryptionKey) {
-      console.error("ENCRYPTION_KEY not configured");
-      return new Response(
-        JSON.stringify({ error: 'Server configuration error' }),
-        {
-          status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        }
-      );
+      const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+      if (!serviceKey) {
+        console.error("No encryption key available");
+        return new Response(
+          JSON.stringify({ error: 'Server configuration error' }),
+          {
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          }
+        );
+      }
+      const encoder = new TextEncoder();
+      const keyData = encoder.encode(serviceKey);
+      const hashBuffer = await crypto.subtle.digest('SHA-256', keyData);
+      const hashArray = new Uint8Array(hashBuffer);
+      encryptionKey = Array.from(hashArray).map(b => b.toString(16).padStart(2, '0')).join('');
     }
 
     let result: string;
