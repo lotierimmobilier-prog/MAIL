@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { X, Send, Sparkles, Loader2, Brain } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import RichTextEditor from '../ui/RichTextEditor';
+import AttachmentsManager from './AttachmentsManager';
 import type { Ticket, Email } from '../../lib/types';
 
 interface EmailComposerProps {
@@ -19,6 +21,7 @@ export default function EmailComposer({ ticket, emails, onClose, onSent }: Email
   const [generatingDraft, setGeneratingDraft] = useState(false);
   const [generatingSuggestion, setGeneratingSuggestion] = useState(false);
   const [suggestionInfo, setSuggestionInfo] = useState<any>(null);
+  const [attachments, setAttachments] = useState<any[]>([]);
 
   useEffect(() => {
     handleSuggestResponse();
@@ -156,7 +159,12 @@ export default function EmailComposer({ ticket, emails, onClose, onSent }: Email
           subject: subject,
           body: body,
           ticketId: ticket.id,
-          inReplyToMessageId: latestInboundEmail?.message_id
+          inReplyToMessageId: latestInboundEmail?.message_id,
+          attachments: attachments.map(a => ({
+            filename: a.filename,
+            content_type: a.content_type,
+            storage_path: a.storage_path
+          }))
         })
       });
 
@@ -307,12 +315,20 @@ export default function EmailComposer({ ticket, emails, onClose, onSent }: Email
 
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1.5">Message</label>
-            <textarea
+            <RichTextEditor
               value={body}
-              onChange={e => setBody(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 font-sans"
+              onChange={setBody}
               placeholder="Tapez votre message ici..."
-              rows={12}
+              minHeight="300px"
+              allowImages={true}
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">Pièces jointes</label>
+            <AttachmentsManager
+              attachments={attachments}
+              onAttachmentsChange={setAttachments}
             />
           </div>
         </div>
