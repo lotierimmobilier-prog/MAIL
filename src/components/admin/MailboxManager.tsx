@@ -94,12 +94,18 @@ export default function MailboxManager() {
         }
       }
 
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: session } = await supabase.auth.getSession();
+      const token = session?.session?.access_token;
+
+      if (!token) {
+        alert('Session expirée, veuillez vous reconnecter');
+        return;
+      }
 
       const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${session?.access_token}`,
+          'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(payload),
