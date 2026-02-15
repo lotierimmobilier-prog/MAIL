@@ -619,7 +619,7 @@ Deno.serve(async (req: Request) => {
           }
         }
         imap.close();
-        console.log(`[${mb.name}] Sync complete: ${synced} synced, ${skipped} skipped, ${errors} errors`);
+        console.log(`[${mb.name}] Sync complete: ${synced} new emails synced, ${skipped} already present, ${errors} errors. Total on server: ${tot}`);
         results.push({ mailbox: mb.name, status: "ok", synced, skipped, errors, total: tot });
       } catch (err: any) {
         imap.close();

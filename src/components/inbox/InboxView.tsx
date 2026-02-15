@@ -236,8 +236,9 @@ export default function InboxView() {
 
       if (data.results?.length) {
         const totalSynced = data.results.reduce((sum: number, r: any) => sum + (r.synced || 0), 0);
+        const totalAvailable = data.results.reduce((sum: number, r: any) => sum + (r.total || 0), 0);
         setSyncResult({
-          msg: `${totalSynced} email${totalSynced !== 1 ? 's' : ''} synchronisé${totalSynced !== 1 ? 's' : ''}`,
+          msg: `${totalSynced} nouveau${totalSynced !== 1 ? 'x' : ''} email${totalSynced !== 1 ? 's' : ''} synchronisé${totalSynced !== 1 ? 's' : ''} sur ${totalAvailable} disponible${totalAvailable !== 1 ? 's' : ''}`,
           ok: true
         });
         loadData();

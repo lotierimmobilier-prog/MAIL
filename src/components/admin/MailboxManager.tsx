@@ -169,7 +169,7 @@ export default function MailboxManager() {
       if (data.results?.[0]) {
         const r = data.results[0];
         if (r.status === 'ok') {
-          setSyncResult({ id: mb.id, msg: `${r.synced} email${r.synced !== 1 ? 's' : ''} synchronise(s)`, ok: true });
+          setSyncResult({ id: mb.id, msg: `${r.synced} nouveau${r.synced !== 1 ? 'x' : ''} email${r.synced !== 1 ? 's' : ''} synchronisé${r.synced !== 1 ? 's' : ''} sur ${r.total} disponible${r.total !== 1 ? 's' : ''}`, ok: true });
         } else if (r.status === 'skipped') {
           setSyncResult({ id: mb.id, msg: r.reason || 'Ignore', ok: false });
         } else {
