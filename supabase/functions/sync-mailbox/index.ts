@@ -514,16 +514,13 @@ Deno.serve(async (req: Request) => {
         await imap.login(mb.username, password);
         const tot = await imap.select("INBOX");
 
-        const thirtyDaysAgo = new Date();
-        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-        const allSeqs = await imap.searchSeq(thirtyDaysAgo);
+        const allSeqs = await imap.searchSeq();
         let synced = 0;
         let skipped = 0;
         let errors = 0;
 
-        const sortedSeqs = [...allSeqs].sort((a, b) => b - a);
-        console.log(`[${mb.name}] Total emails on server: ${tot}, processing ${sortedSeqs.length} emails from last 30 days`);
+        const sortedSeqs = [...allSeqs].sort((a, b) => b - a).slice(0, maxEmailsPerMailbox);
+        console.log(`[${mb.name}] Total emails on server: ${tot}, processing ${sortedSeqs.length} most recent emails`);
 
         for (const seq of sortedSeqs) {
           try {
