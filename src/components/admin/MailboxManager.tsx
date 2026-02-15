@@ -22,7 +22,10 @@ export default function MailboxManager() {
   useEffect(() => { load(); }, []);
 
   async function load() {
-    const { data } = await supabase.from('mailboxes').select('*').order('name');
+    const { data } = await supabase
+      .from('mailboxes')
+      .select('id, name, email_address, provider_type, imap_host, imap_port, smtp_host, smtp_port, smtp_security, username, use_tls, polling_interval_seconds, is_active, signature, style_prompt, tone, ovh_domain, ovh_account, created_at, updated_at')
+      .order('name');
     if (data) setMailboxes(data);
   }
 
@@ -58,50 +61,61 @@ export default function MailboxManager() {
   }
 
   async function handleSave() {
-    const payload: any = {
-      name: form.name,
-      email_address: form.email_address,
-      provider_type: form.provider_type,
-      signature: form.signature,
-      style_prompt: form.style_prompt,
-      tone: form.tone,
-      updated_at: new Date().toISOString(),
-    };
+    try {
+      const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/update-mailbox-credentials`;
 
-    if (form.provider_type === 'ovh') {
-      payload.ovh_consumer_key = form.ovh_consumer_key;
-      payload.ovh_domain = form.ovh_domain;
-      payload.ovh_account = form.ovh_account;
-      payload.imap_host = 'ssl0.ovh.net';
-      payload.imap_port = 993;
-      payload.smtp_host = 'ssl0.ovh.net';
-      payload.smtp_port = 465;
-      payload.username = form.email_address;
-      payload.use_tls = true;
-      payload.polling_interval_seconds = 60;
-    } else {
-      payload.imap_host = form.imap_host;
-      payload.imap_port = parseInt(form.imap_port);
-      payload.smtp_host = form.smtp_host;
-      payload.smtp_port = parseInt(form.smtp_port);
-      payload.smtp_security = form.smtp_security;
-      payload.username = form.username;
-      if (form.encrypted_password) payload.encrypted_password = form.encrypted_password;
-      payload.use_tls = form.use_tls;
-      payload.polling_interval_seconds = parseInt(form.polling_interval_seconds);
-    }
+      const payload: any = {
+        mailboxId: selected?.id,
+        name: form.name,
+        email_address: form.email_address,
+        provider_type: form.provider_type,
+        signature: form.signature,
+        style_prompt: form.style_prompt,
+        tone: form.tone,
+      };
 
-    if (selected) {
-      await supabase.from('mailboxes').update(payload).eq('id', selected.id);
-    } else {
-      if (form.provider_type === 'imap') {
-        payload.encrypted_password = form.encrypted_password || '';
+      if (form.provider_type === 'ovh') {
+        payload.ovh_domain = form.ovh_domain;
+        payload.ovh_account = form.ovh_account;
+        if (form.ovh_consumer_key) {
+          payload.ovh_consumer_key = form.ovh_consumer_key;
+        }
+      } else {
+        payload.imap_host = form.imap_host;
+        payload.imap_port = parseInt(form.imap_port);
+        payload.smtp_host = form.smtp_host;
+        payload.smtp_port = parseInt(form.smtp_port);
+        payload.smtp_security = form.smtp_security;
+        payload.username = form.username;
+        payload.use_tls = form.use_tls;
+        payload.polling_interval_seconds = parseInt(form.polling_interval_seconds);
+        if (form.encrypted_password) {
+          payload.password = form.encrypted_password;
+        }
       }
-      await supabase.from('mailboxes').insert(payload);
-    }
 
-    setEditOpen(false);
-    load();
+      const { data: { session } } = await supabase.auth.getSession();
+
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session?.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to save mailbox');
+      }
+
+      setEditOpen(false);
+      load();
+    } catch (error: any) {
+      console.error('Error saving mailbox:', error);
+      alert(`Erreur: ${error.message}`);
+    }
   }
 
   async function toggleActive(mb: Mailbox) {

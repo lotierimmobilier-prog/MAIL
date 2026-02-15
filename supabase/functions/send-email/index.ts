@@ -61,7 +61,8 @@ async function sendViaSMTP(
       pass: password,
     },
     tls: {
-      rejectUnauthorized: false
+      rejectUnauthorized: true,
+      minVersion: 'TLSv1.2'
     },
     debug: true,
     logger: true
@@ -169,7 +170,12 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const { data: mailbox } = await supabaseClient
+    const supabaseAdmin = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+    );
+
+    const { data: mailbox } = await supabaseAdmin
       .from("mailboxes")
       .select("*")
       .eq("id", mailboxId)
@@ -180,6 +186,32 @@ Deno.serve(async (req: Request) => {
         JSON.stringify({ error: "Boîte mail non trouvée" }),
         { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
+    }
+
+    let password = mailbox.encrypted_password;
+
+    if (mailbox.encrypted_password_secure) {
+      const cryptoUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/crypto-credentials`;
+      const decryptRes = await fetch(cryptoUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          operation: 'decrypt',
+          data: mailbox.encrypted_password_secure,
+          mailboxId: mailbox.id
+        })
+      });
+
+      if (decryptRes.ok) {
+        const decryptData = await decryptRes.json();
+        password = decryptData.result;
+      } else {
+        console.error('Failed to decrypt password');
+        throw new Error('Failed to decrypt mailbox credentials');
+      }
     }
 
     const { data: profile } = await supabaseClient
@@ -224,13 +256,12 @@ Deno.serve(async (req: Request) => {
       htmlBody = emailBody.replace(/\n/g, '<br>');
     }
 
-    // Envoyer via SMTP en utilisant les paramètres de la mailbox
     try {
       await sendViaSMTP(
         mailbox.smtp_host,
         mailbox.smtp_port,
         mailbox.username,
-        mailbox.encrypted_password, // Note: dans une vraie production, il faudrait déchiffrer
+        password,
         (mailbox as any).smtp_security || 'SSL',
         mailbox.email_address,
         to,

@@ -92,8 +92,37 @@ async function ovhRequestWithConsumer(method: string, path: string, consumerKey:
   return response.json();
 }
 
+async function decryptCredential(encryptedData: string, mailboxId: string): Promise<string> {
+  const cryptoUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/crypto-credentials`;
+  const response = await fetch(cryptoUrl, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      operation: 'decrypt',
+      data: encryptedData,
+      mailboxId
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to decrypt credential');
+  }
+
+  const data = await response.json();
+  return data.result;
+}
+
 async function syncOvhMailbox(mb: any, sb: any) {
-  if (!mb.ovh_consumer_key || !mb.ovh_domain || !mb.ovh_account) {
+  let consumerKey = mb.ovh_consumer_key;
+
+  if (mb.ovh_consumer_key_secure) {
+    consumerKey = await decryptCredential(mb.ovh_consumer_key_secure, mb.id);
+  }
+
+  if (!consumerKey || !mb.ovh_domain || !mb.ovh_account) {
     return { mailbox: mb.name, status: "skipped", reason: "Missing OVH configuration" };
   }
 
@@ -101,7 +130,7 @@ async function syncOvhMailbox(mb: any, sb: any) {
     const emailIds = await ovhRequestWithConsumer(
       "GET",
       `/email/domain/${mb.ovh_domain}/account/${mb.ovh_account}/email`,
-      mb.ovh_consumer_key
+      consumerKey
     );
 
     let synced = 0;
@@ -112,7 +141,7 @@ async function syncOvhMailbox(mb: any, sb: any) {
         const emailData = await ovhRequestWithConsumer(
           "GET",
           `/email/domain/${mb.ovh_domain}/account/${mb.ovh_account}/email/${emailId}`,
-          mb.ovh_consumer_key
+          consumerKey
         );
 
         const mid = emailData.id || `ovh-${emailId}-${mb.id}`;
@@ -428,14 +457,27 @@ Deno.serve(async (req: Request) => {
         continue;
       }
 
-      if (!mb.encrypted_password || mb.encrypted_password === "encrypted_placeholder") {
+      let password = mb.encrypted_password;
+
+      if (mb.encrypted_password_secure) {
+        try {
+          password = await decryptCredential(mb.encrypted_password_secure, mb.id);
+        } catch (err) {
+          console.error(`Failed to decrypt password for mailbox ${mb.id}:`, err);
+          results.push({ mailbox: mb.name, status: "error", error: "Failed to decrypt password" });
+          continue;
+        }
+      }
+
+      if (!password || password === "encrypted_placeholder") {
         results.push({ mailbox: mb.name, status: "skipped", reason: "No password" });
         continue;
       }
+
       const imap = new Imap();
       try {
         await imap.open(mb.imap_host, mb.imap_port);
-        await imap.login(mb.username, mb.encrypted_password);
+        await imap.login(mb.username, password);
         const tot = await imap.select("INBOX");
         const allSeqs = await imap.searchSeq();
         let synced = 0;

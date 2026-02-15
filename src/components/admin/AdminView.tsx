@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Server, Users, FolderOpen, Shield, Settings, Activity, Tag } from 'lucide-react';
+import { Server, Users, FolderOpen, Shield, Settings, Activity, Tag, Lock } from 'lucide-react';
 import Header from '../layout/Header';
 import MailboxManager from './MailboxManager';
 import UserManager from './UserManager';
@@ -8,6 +8,7 @@ import StatusPriorityManager from './StatusPriorityManager';
 import AuditLogViewer from './AuditLogViewer';
 import SettingsManager from './SettingsManager';
 import MailboxDiagnostics from './MailboxDiagnostics';
+import SecurityManager from './SecurityManager';
 import { useAuth } from '../../contexts/AuthContext';
 
 const tabs = [
@@ -16,6 +17,7 @@ const tabs = [
   { id: 'users', label: 'Utilisateurs', icon: Users },
   { id: 'categories', label: 'Catégories', icon: FolderOpen },
   { id: 'status-priority', label: 'Statuts & Priorités', icon: Tag },
+  { id: 'security', label: 'Sécurité', icon: Lock, adminOnly: true },
   { id: 'settings', label: 'Paramètres', icon: Settings, adminOnly: true },
   { id: 'audit', label: 'Journal d\'audit', icon: Shield, adminOnly: true },
 ];
@@ -55,6 +57,7 @@ export default function AdminView() {
         {activeTab === 'users' && <UserManager />}
         {activeTab === 'categories' && <CategoryManager />}
         {activeTab === 'status-priority' && <StatusPriorityManager />}
+        {activeTab === 'security' && isAdmin && <SecurityManager />}
         {activeTab === 'settings' && isAdmin && <SettingsManager />}
         {activeTab === 'audit' && isAdmin && <AuditLogViewer />}
       </div>
