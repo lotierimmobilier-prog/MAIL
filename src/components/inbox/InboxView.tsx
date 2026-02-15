@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { formatDistanceToNow, format, isToday, isPast, isFuture } from 'date-fns';
+import { format, isToday, isPast, isFuture } from 'date-fns';
+import { fr } from 'date-fns/locale';
 import { Inbox, Mail, RefreshCw, Trash2, CheckSquare, Square, MinusSquare, Download, Loader2, PenSquare, Paperclip, Calendar } from 'lucide-react';
 import Header from '../layout/Header';
 import InboxFilters, { type InboxFilterState } from './InboxFilters';
@@ -484,8 +485,10 @@ export default function InboxView() {
                         </div>
                       );
                     })()}
-                    <span className="text-xs text-slate-400 w-20 text-right">
-                      {formatDistanceToNow(new Date(ticket.last_message_at), { addSuffix: true })}
+                    <span className="text-xs text-slate-400 w-28 text-right">
+                      {isToday(new Date(ticket.last_message_at))
+                        ? format(new Date(ticket.last_message_at), "HH:mm", { locale: fr })
+                        : format(new Date(ticket.last_message_at), "dd MMM 'à' HH:mm", { locale: fr })}
                     </span>
                   </div>
                 </div>

@@ -24,8 +24,27 @@ Deno.serve(async (req: Request) => {
 
     const { data: categories } = await supabase
       .from("categories")
-      .select("name, keywords, description")
+      .select("id, name, keywords, description")
       .order("name");
+
+    const searchText = `${subject} ${body}`.toLowerCase();
+    let matchedCategory: any = null;
+    let maxMatches = 0;
+
+    if (categories && categories.length > 0) {
+      for (const cat of categories) {
+        if (cat.keywords && cat.keywords.length > 0) {
+          const matches = cat.keywords.filter((kw: string) =>
+            searchText.includes(kw.toLowerCase())
+          ).length;
+
+          if (matches > maxMatches) {
+            maxMatches = matches;
+            matchedCategory = cat;
+          }
+        }
+      }
+    }
 
     const openaiKey = Deno.env.get("OPENAI_API_KEY");
 
@@ -148,6 +167,17 @@ Retourne UNIQUEMENT du JSON valide, aucun autre texte.`;
       confidence: classification.confidence ?? 0.5,
       raw_response: openaiData,
     });
+
+    if (matchedCategory && ticket_id) {
+      await supabase.from("tickets").update({
+        category_id: matchedCategory.id,
+        priority: classification.priority ?? "medium",
+      }).eq("id", ticket_id);
+    } else if (ticket_id && classification.priority) {
+      await supabase.from("tickets").update({
+        priority: classification.priority,
+      }).eq("id", ticket_id);
+    }
 
     return new Response(JSON.stringify(classification), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

@@ -166,6 +166,7 @@ async function syncOvhMailbox(mb: any, sb: any) {
           if (m) tid = m.id;
         }
 
+        let isNewTicket = false;
         if (!tid) {
           const out = fromAddr.toLowerCase() === mb.email_address.toLowerCase();
           const { data: tk } = await sb.from("tickets").insert({
@@ -177,12 +178,15 @@ async function syncOvhMailbox(mb: any, sb: any) {
             priority: null,
             last_message_at: vd.toISOString(),
           }).select("id").single();
-          if (tk) tid = tk.id;
+          if (tk) {
+            tid = tk.id;
+            isNewTicket = true;
+          }
         }
         if (!tid) continue;
 
         const dir = fromAddr.toLowerCase() === mb.email_address.toLowerCase() ? "outbound" : "inbound";
-        await sb.from("emails").insert({
+        const { data: insertedEmail } = await sb.from("emails").insert({
           ticket_id: tid,
           mailbox_id: mb.id,
           message_id: mid,
@@ -194,7 +198,30 @@ async function syncOvhMailbox(mb: any, sb: any) {
           body_html: emailData.bodyHtml || null,
           direction: dir,
           received_at: vd.toISOString(),
-        });
+        }).select("id").single();
+
+        if (insertedEmail && isNewTicket && dir === "inbound") {
+          try {
+            const classifyUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/classify-email`;
+            fetch(classifyUrl, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                email_id: insertedEmail.id,
+                ticket_id: tid,
+                subject: subj,
+                body: emailData.body || emailData.bodyHtml || "",
+                from_address: fromAddr,
+                from_name: emailData.fromName || "",
+              }),
+            }).catch(err => console.error("Classification error:", err));
+          } catch (e) {
+            console.error("Failed to trigger classification:", e);
+          }
+        }
 
         await sb.from("tickets").update({
           last_message_at: vd.toISOString(),
@@ -554,6 +581,7 @@ Deno.serve(async (req: Request) => {
             if (!tid && refs.length) { for (const r of refs) { const { data: re } = await sb.from("emails").select("ticket_id").eq("message_id", r).maybeSingle(); if (re) { tid = re.ticket_id; break; } } }
             if (!tid && subj) { const cs = stripRe(subj); if (cs) { const { data: m } = await sb.from("tickets").select("id").eq("mailbox_id", mb.id).eq("subject", cs).order("created_at", { ascending: false }).limit(1).maybeSingle(); if (m) tid = m.id; } }
 
+            let isNewTicket = false;
             if (!tid) {
               const fa = from[0]?.address || "unknown@unknown.com";
               const out = fa.toLowerCase() === mb.email_address.toLowerCase();
@@ -565,7 +593,10 @@ Deno.serve(async (req: Request) => {
                 status: null, priority: null,
                 last_message_at: vd.toISOString(),
               }).select("id").single();
-              if (tk) tid = tk.id;
+              if (tk) {
+                tid = tk.id;
+                isNewTicket = true;
+              }
             }
             if (!tid) continue;
 
@@ -579,6 +610,29 @@ Deno.serve(async (req: Request) => {
               subject: subj, body_text: text || null, body_html: html || null,
               direction: dir, received_at: vd.toISOString(),
             }).select("id").single();
+
+            if (insertedEmail && isNewTicket && dir === "inbound") {
+              try {
+                const classifyUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/classify-email`;
+                fetch(classifyUrl, {
+                  method: 'POST',
+                  headers: {
+                    'Authorization': `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                    email_id: insertedEmail.id,
+                    ticket_id: tid,
+                    subject: subj,
+                    body: text || html || "",
+                    from_address: from[0]?.address || "",
+                    from_name: from[0]?.name || "",
+                  }),
+                }).catch(err => console.error("Classification error:", err));
+              } catch (e) {
+                console.error("Failed to trigger classification:", e);
+              }
+            }
 
             if (insertedEmail && parsedAttachments.length > 0) {
               for (const att of parsedAttachments) {
