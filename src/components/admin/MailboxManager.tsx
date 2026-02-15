@@ -264,7 +264,12 @@ export default function MailboxManager() {
                   <label className="block text-xs text-slate-600 mb-1">Consumer Key</label>
                   <input type="text" value={form.ovh_consumer_key} onChange={e => setForm({ ...form, ovh_consumer_key: e.target.value })}
                     className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/20"
-                    placeholder="Clé consumer OVH" />
+                    placeholder={selected ? "(inchangé si vide)" : "Clé consumer OVH"} />
+                  {selected && (
+                    <p className="text-xs text-slate-500 mt-1">
+                      Laissez vide pour conserver la clé existante
+                    </p>
+                  )}
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -380,7 +385,11 @@ export default function MailboxManager() {
               disabled={
                 !form.name ||
                 !form.email_address ||
-                (form.provider_type === 'ovh' && (!form.ovh_consumer_key || !form.ovh_domain || !form.ovh_account))
+                (form.provider_type === 'ovh' && (
+                  !form.ovh_domain ||
+                  !form.ovh_account ||
+                  (!selected && !form.ovh_consumer_key)
+                ))
               }
               className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-medium rounded-lg transition disabled:opacity-50">
               {selected ? 'Enregistrer les modifications' : 'Ajouter la boîte mail'}
