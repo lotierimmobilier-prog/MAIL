@@ -201,26 +201,12 @@ async function syncOvhMailbox(mb: any, sb: any) {
         }).select("id").single();
 
         if (insertedEmail && isNewTicket && dir === "inbound") {
-          try {
-            const classifyUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/classify-email`;
-            fetch(classifyUrl, {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                email_id: insertedEmail.id,
-                ticket_id: tid,
-                subject: subj,
-                body: emailData.body || emailData.bodyHtml || "",
-                from_address: fromAddr,
-                from_name: emailData.fromName || "",
-              }),
-            }).catch(err => console.error("Classification error:", err));
-          } catch (e) {
-            console.error("Failed to trigger classification:", e);
-          }
+          await sb.from("classification_queue").insert({
+            email_id: insertedEmail.id,
+            ticket_id: tid,
+            status: 'pending',
+            priority: 1,
+          }).catch(err => console.error("Failed to queue classification:", err));
         }
 
         await sb.from("tickets").update({
@@ -612,26 +598,12 @@ Deno.serve(async (req: Request) => {
             }).select("id").single();
 
             if (insertedEmail && isNewTicket && dir === "inbound") {
-              try {
-                const classifyUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/classify-email`;
-                fetch(classifyUrl, {
-                  method: 'POST',
-                  headers: {
-                    'Authorization': `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-                    'Content-Type': 'application/json',
-                  },
-                  body: JSON.stringify({
-                    email_id: insertedEmail.id,
-                    ticket_id: tid,
-                    subject: subj,
-                    body: text || html || "",
-                    from_address: from[0]?.address || "",
-                    from_name: from[0]?.name || "",
-                  }),
-                }).catch(err => console.error("Classification error:", err));
-              } catch (e) {
-                console.error("Failed to trigger classification:", e);
-              }
+              await sb.from("classification_queue").insert({
+                email_id: insertedEmail.id,
+                ticket_id: tid,
+                status: 'pending',
+                priority: 1,
+              }).catch(err => console.error("Failed to queue classification:", err));
             }
 
             if (insertedEmail && parsedAttachments.length > 0) {
