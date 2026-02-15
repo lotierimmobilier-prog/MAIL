@@ -25,7 +25,9 @@ export default function AttachmentsManager({
   allowedTypes = ['image/*', 'application/pdf', '.doc', '.docx', '.xls', '.xlsx', '.txt', '.csv', '.zip']
 }: AttachmentsManagerProps) {
   const [uploading, setUploading] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const dropZoneRef = useRef<HTMLDivElement>(null);
 
   const formatFileSize = (bytes: number) => {
     if (bytes === 0) return '0 B';
@@ -117,30 +119,131 @@ export default function AttachmentsManager({
     }
   };
 
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.currentTarget === dropZoneRef.current) {
+      setDragging(false);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragging(false);
+
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length === 0) return;
+
+    const totalSize = [...attachments, ...files].reduce((sum, item) => {
+      return sum + ('file_size' in item ? item.file_size : item.size);
+    }, 0);
+
+    if (totalSize > maxSize) {
+      alert(`La taille totale des fichiers ne peut pas dépasser ${formatFileSize(maxSize)}`);
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const newAttachments: Attachment[] = [];
+
+      for (const file of files) {
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${Math.random().toString(36).substring(2)}_${Date.now()}.${fileExt}`;
+        const filePath = `attachments/${fileName}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('attachments')
+          .upload(filePath, file, {
+            cacheControl: '3600',
+            upsert: false
+          });
+
+        if (uploadError) {
+          console.error('Upload error:', uploadError);
+          alert(`Erreur lors du téléchargement de ${file.name}`);
+          continue;
+        }
+
+        newAttachments.push({
+          id: fileName,
+          filename: file.name,
+          content_type: file.type,
+          file_size: file.size,
+          storage_path: filePath,
+          file
+        });
+      }
+
+      onAttachmentsChange([...attachments, ...newAttachments]);
+    } catch (error) {
+      console.error('Error uploading files:', error);
+      alert('Erreur lors du téléchargement des fichiers');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   return (
     <div>
-      <div className="flex items-center gap-2 mb-2">
-        <button
-          type="button"
-          onClick={handleFileSelect}
-          disabled={uploading}
-          className="flex items-center gap-2 px-3 py-2 text-sm text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition disabled:opacity-50"
-        >
-          {uploading ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <Paperclip className="w-4 h-4" />
-          )}
-          <span>Joindre des fichiers</span>
-        </button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          accept={allowedTypes.join(',')}
-          onChange={handleFilesChange}
-          className="hidden"
-        />
+      <div
+        ref={dropZoneRef}
+        onDragEnter={handleDragEnter}
+        onDragLeave={handleDragLeave}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+        className={`relative border-2 border-dashed rounded-lg p-4 transition-colors ${
+          dragging
+            ? 'border-cyan-500 bg-cyan-50'
+            : 'border-slate-200 bg-slate-50'
+        }`}
+      >
+        <div className="flex flex-col items-center gap-2">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleFileSelect}
+              disabled={uploading}
+              className="flex items-center gap-2 px-3 py-2 text-sm text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition disabled:opacity-50"
+            >
+              {uploading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Paperclip className="w-4 h-4" />
+              )}
+              <span>Joindre des fichiers</span>
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept={allowedTypes.join(',')}
+              onChange={handleFilesChange}
+              className="hidden"
+            />
+          </div>
+          <p className="text-xs text-slate-500 text-center">
+            ou glissez-déposez vos fichiers ici
+          </p>
+        </div>
+
+        {dragging && (
+          <div className="absolute inset-0 flex items-center justify-center bg-cyan-500/10 rounded-lg pointer-events-none">
+            <p className="text-cyan-700 font-medium">Déposez vos fichiers ici</p>
+          </div>
+        )}
       </div>
 
       {attachments.length > 0 && (

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { X, Send, Sparkles, Loader2, Brain } from 'lucide-react';
+import { X, Send, Sparkles, Loader2, Brain, PenTool } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
-import RichTextEditor from '../ui/RichTextEditor';
+import TipTapEditor, { juice } from '../ui/TipTapEditor';
 import AttachmentsManager from './AttachmentsManager';
 import type { Ticket, Email } from '../../lib/types';
 
@@ -22,10 +22,59 @@ export default function EmailComposer({ ticket, emails, onClose, onSent }: Email
   const [generatingSuggestion, setGeneratingSuggestion] = useState(false);
   const [suggestionInfo, setSuggestionInfo] = useState<any>(null);
   const [attachments, setAttachments] = useState<any[]>([]);
+  const [signatures, setSignatures] = useState<any[]>([]);
+  const [selectedSignature, setSelectedSignature] = useState<string | null>(null);
 
   useEffect(() => {
     handleSuggestResponse();
+    loadSignatures();
   }, []);
+
+  async function loadSignatures() {
+    const { data } = await supabase
+      .from('user_signatures')
+      .select('*')
+      .eq('is_active', true)
+      .order('is_default', { ascending: false });
+
+    if (data && data.length > 0) {
+      setSignatures(data);
+      const defaultSig = data.find(s => s.is_default);
+      if (defaultSig) {
+        setSelectedSignature(defaultSig.id);
+      }
+    }
+  }
+
+  function insertSignature(htmlBody: string): string {
+    if (!selectedSignature) return htmlBody;
+
+    const signature = signatures.find(s => s.id === selectedSignature);
+    if (!signature) return htmlBody;
+
+    return `${htmlBody}<br/><br/>${signature.html_content}`;
+  }
+
+  async function handleImageUpload(file: File): Promise<string> {
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Math.random().toString(36).substring(2)}_${Date.now()}.${fileExt}`;
+    const filePath = `signatures/${fileName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('attachments')
+      .upload(filePath, file, {
+        cacheControl: '3600',
+        upsert: false
+      });
+
+    if (uploadError) throw uploadError;
+
+    const { data } = supabase.storage
+      .from('attachments')
+      .getPublicUrl(filePath);
+
+    return data.publicUrl;
+  }
 
   async function handleSuggestResponse() {
     setGeneratingSuggestion(true);
@@ -147,6 +196,9 @@ export default function EmailComposer({ ticket, emails, onClose, onSent }: Email
         .filter(e => e.direction === 'inbound')
         .sort((a, b) => new Date(b.received_at).getTime() - new Date(a.received_at).getTime())[0];
 
+      const htmlWithSignature = insertSignature(body);
+      const inlineHtml = juice(htmlWithSignature);
+
       const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
@@ -157,7 +209,7 @@ export default function EmailComposer({ ticket, emails, onClose, onSent }: Email
           mailboxId: ticket.mailbox_id,
           to: to,
           subject: subject,
-          body: body,
+          body: inlineHtml,
           ticketId: ticket.id,
           inReplyToMessageId: latestInboundEmail?.message_id,
           attachments: attachments.map(a => ({
@@ -190,7 +242,7 @@ export default function EmailComposer({ ticket, emails, onClose, onSent }: Email
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+      <div className="bg-white rounded-xl shadow-2xl max-w-5xl w-full max-h-[95vh] overflow-hidden flex flex-col">
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
           <h2 className="text-lg font-semibold text-slate-900">Composer un email</h2>
           <button
@@ -313,14 +365,36 @@ export default function EmailComposer({ ticket, emails, onClose, onSent }: Email
             </p>
           </div>
 
+          {signatures.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">Signature</label>
+              <div className="flex items-center gap-2">
+                <PenTool className="w-4 h-4 text-slate-400" />
+                <select
+                  value={selectedSignature || ''}
+                  onChange={(e) => setSelectedSignature(e.target.value || null)}
+                  className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500"
+                >
+                  <option value="">Aucune signature</option>
+                  {signatures.map(sig => (
+                    <option key={sig.id} value={sig.id}>
+                      {sig.name} {sig.is_default && '(par défaut)'}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
+
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1.5">Message</label>
-            <RichTextEditor
-              value={body}
+            <TipTapEditor
+              content={body}
               onChange={setBody}
               placeholder="Tapez votre message ici..."
               minHeight="300px"
-              allowImages={true}
+              onImageUpload={handleImageUpload}
+              showHtmlMode={true}
             />
           </div>
 
