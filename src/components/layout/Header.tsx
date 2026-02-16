@@ -1,4 +1,4 @@
-import { Search, RefreshCw } from 'lucide-react';
+import { Search, RefreshCw, Trash2 } from 'lucide-react';
 import NotificationCenter from '../notifications/NotificationCenter';
 import { useSyncProgress } from '../../hooks/useSyncProgress';
 
@@ -9,6 +9,14 @@ interface HeaderProps {
 
 export default function Header({ title, subtitle }: HeaderProps) {
   const syncProgress = useSyncProgress();
+
+  const handleClearCache = () => {
+    if (confirm('Voulez-vous vraiment vider le cache ? Cette action rechargera la page.')) {
+      localStorage.clear();
+      sessionStorage.clear();
+      window.location.reload();
+    }
+  };
 
   return (
     <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 shrink-0">
@@ -42,6 +50,17 @@ export default function Header({ title, subtitle }: HeaderProps) {
             </div>
           </div>
         )}
+
+        <button
+          onClick={handleClearCache}
+          className="p-2 hover:bg-slate-100 rounded-lg transition-colors group relative"
+          title="Vider le cache"
+        >
+          <Trash2 className="w-5 h-5 text-slate-600 group-hover:text-red-600 transition-colors" />
+          <span className="absolute -bottom-8 right-0 bg-slate-900 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
+            Vider le cache
+          </span>
+        </button>
 
         <NotificationCenter />
 
