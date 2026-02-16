@@ -1,5 +1,6 @@
-import { Search } from 'lucide-react';
+import { Search, RefreshCw } from 'lucide-react';
 import NotificationCenter from '../notifications/NotificationCenter';
+import { useSyncProgress } from '../../hooks/useSyncProgress';
 
 interface HeaderProps {
   title: string;
@@ -7,6 +8,8 @@ interface HeaderProps {
 }
 
 export default function Header({ title, subtitle }: HeaderProps) {
+  const syncProgress = useSyncProgress();
+
   return (
     <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 shrink-0">
       <div>
@@ -23,6 +26,22 @@ export default function Header({ title, subtitle }: HeaderProps) {
             className="pl-9 pr-4 py-2 w-64 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition"
           />
         </div>
+
+        {syncProgress.isSyncing && (
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-cyan-50 border border-cyan-200 rounded-lg">
+            <RefreshCw className="w-4 h-4 text-cyan-600 animate-spin" />
+            <div className="flex flex-col">
+              <span className="text-xs font-medium text-cyan-900">
+                Synchronisation {syncProgress.progress}%
+              </span>
+              {syncProgress.mailboxName && (
+                <span className="text-xs text-cyan-600">
+                  {syncProgress.mailboxName}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
 
         <NotificationCenter />
 
