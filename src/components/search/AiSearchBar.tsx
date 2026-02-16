@@ -64,13 +64,21 @@ export default function AiSearchBar({ onResultClick }: AiSearchBarProps) {
 
     try {
       const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/semantic-search`;
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+
+      if (sessionError || !session) {
+        console.error('Session error:', sessionError);
+        setResults([]);
+        setIsSearching(false);
+        return;
+      }
 
       const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${session?.access_token}`,
+          'Authorization': `Bearer ${session.access_token}`,
           'Content-Type': 'application/json',
+          'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
         },
         body: JSON.stringify({
           query,
@@ -83,7 +91,8 @@ export default function AiSearchBar({ onResultClick }: AiSearchBarProps) {
         const data = await response.json();
         setResults(data.results || []);
       } else {
-        console.error('Search failed:', await response.text());
+        const errorText = await response.text();
+        console.error('Search failed:', errorText);
         setResults([]);
       }
     } catch (error) {

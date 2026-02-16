@@ -30,6 +30,7 @@ Deno.serve(async (req: Request) => {
   try {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
+      console.error("No authorization header");
       return new Response(
         JSON.stringify({ error: "Authorization required" }),
         {
@@ -49,8 +50,20 @@ Deno.serve(async (req: Request) => {
       }
     );
 
-    const { data: { user } } = await supabaseClient.auth.getUser();
+    const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
+    if (userError) {
+      console.error("Auth error:", userError);
+      return new Response(
+        JSON.stringify({ error: "Invalid JWT", details: userError.message }),
+        {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
     if (!user) {
+      console.error("No user found");
       return new Response(
         JSON.stringify({ error: "Unauthorized" }),
         {
