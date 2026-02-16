@@ -241,6 +241,128 @@ export default function MailboxManager() {
     setSyncResult(null);
   }
 
+  async function syncMailboxSafe(mb: Mailbox, batchSize: number = 10): Promise<{ success: boolean; synced: number; hasMore: boolean; error?: string }> {
+    try {
+      const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/sync-mailbox`;
+
+      const res = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          mailbox_id: mb.id,
+          batch_size: batchSize
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+      }
+
+      const data = await res.json();
+
+      if (data.results?.[0]) {
+        const r = data.results[0];
+
+        if (r.status === 'ok') {
+          return {
+            success: true,
+            synced: r.synced || 0,
+            hasMore: r.has_more === true
+          };
+        } else if (r.status === 'skipped') {
+          return {
+            success: false,
+            synced: 0,
+            hasMore: false,
+            error: r.reason || 'Ignoré'
+          };
+        } else {
+          return {
+            success: false,
+            synced: 0,
+            hasMore: false,
+            error: r.error || 'Erreur inconnue'
+          };
+        }
+      }
+
+      if (data.error) {
+        return {
+          success: false,
+          synced: 0,
+          hasMore: false,
+          error: data.error
+        };
+      }
+
+      return {
+        success: false,
+        synced: 0,
+        hasMore: false,
+        error: 'Réponse invalide'
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        synced: 0,
+        hasMore: false,
+        error: err.message || 'Erreur réseau'
+      };
+    }
+  }
+
+  async function syncAllEmails(mb: Mailbox) {
+    let totalSynced = 0;
+    let batchCount = 0;
+    let hasMore = true;
+    const maxBatches = 1000;
+
+    while (hasMore && batchCount < maxBatches && isSyncing) {
+      batchCount++;
+
+      const result = await syncMailboxSafe(mb, 10);
+
+      if (result.success) {
+        totalSynced += result.synced;
+        hasMore = result.hasMore;
+
+        setSyncResult({
+          id: mb.id,
+          msg: `Batch ${batchCount}: ${result.synced} email${result.synced !== 1 ? 's' : ''} synchronisé${result.synced !== 1 ? 's' : ''} (Total: ${totalSynced})${hasMore ? ' - En cours...' : ' - Terminé'}`,
+          ok: true
+        });
+
+        if (hasMore && result.synced > 0) {
+          await new Promise(resolve => setTimeout(resolve, 200));
+        } else if (result.synced === 0) {
+          hasMore = false;
+        }
+      } else {
+        setSyncResult({ id: mb.id, msg: result.error || 'Erreur', ok: false });
+        hasMore = false;
+      }
+    }
+
+    if (batchCount >= maxBatches) {
+      setSyncResult({
+        id: mb.id,
+        msg: `Limite atteinte: ${totalSynced} emails synchronisés en ${batchCount} batchs`,
+        ok: true
+      });
+    } else if (totalSynced > 0) {
+      setSyncResult({
+        id: mb.id,
+        msg: `Synchronisation terminée: ${totalSynced} email${totalSynced !== 1 ? 's' : ''} synchronisé${totalSynced !== 1 ? 's' : ''} en ${batchCount} batch${batchCount !== 1 ? 's' : ''}`,
+        ok: true
+      });
+    }
+
+    return totalSynced;
+  }
+
   async function handleSync(mb: Mailbox) {
     if (isSyncing) {
       const now = Date.now();
@@ -270,69 +392,8 @@ export default function MailboxManager() {
 
     console.log('SYNC START for mailbox:', mb.id, 'at', new Date(syncStartTime).toISOString());
 
-    let totalSynced = 0;
-    let batchCount = 0;
-    let hasMore = true;
-
     try {
-      const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/sync-mailbox`;
-
-      while (hasMore && isSyncing) {
-        batchCount++;
-
-        const res = await fetch(apiUrl, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            mailbox_id: mb.id,
-            batch_size: 10
-          }),
-        });
-
-        const data = await res.json();
-
-        if (data.results?.[0]) {
-          const r = data.results[0];
-
-          if (r.status === 'ok') {
-            totalSynced += r.synced || 0;
-            hasMore = r.has_more === true;
-
-            setSyncResult({
-              id: mb.id,
-              msg: `Batch ${batchCount}: ${r.synced} email${r.synced !== 1 ? 's' : ''} synchronisé${r.synced !== 1 ? 's' : ''} (Total: ${totalSynced})${hasMore ? ' - En cours...' : ' - Terminé'}`,
-              ok: true
-            });
-
-            if (hasMore) {
-              await new Promise(resolve => setTimeout(resolve, 300));
-            }
-          } else if (r.status === 'skipped') {
-            setSyncResult({ id: mb.id, msg: r.reason || 'Ignoré', ok: false });
-            hasMore = false;
-          } else {
-            setSyncResult({ id: mb.id, msg: r.error || 'Erreur inconnue', ok: false });
-            hasMore = false;
-          }
-        } else if (data.error) {
-          setSyncResult({ id: mb.id, msg: data.error, ok: false });
-          hasMore = false;
-        } else {
-          hasMore = false;
-        }
-      }
-
-      if (totalSynced > 0) {
-        setSyncResult({
-          id: mb.id,
-          msg: `Synchronisation terminée: ${totalSynced} email${totalSynced !== 1 ? 's' : ''} synchronisé${totalSynced !== 1 ? 's' : ''} en ${batchCount} batch${batchCount !== 1 ? 's' : ''}`,
-          ok: true
-        });
-      }
-
+      const totalSynced = await syncAllEmails(mb);
       console.log('SYNC SUCCESS for mailbox:', mb.id, '- Total synced:', totalSynced);
     } catch (err: any) {
       console.error('SYNC ERROR for mailbox:', mb.id, '-', err);

@@ -481,7 +481,7 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 200, headers: cors });
 
   const startTime = Date.now();
-  const MAX_EXECUTION_TIME = 4000;
+  const MAX_EXECUTION_TIME = 8000;
 
   const isTimeout = () => Date.now() - startTime > MAX_EXECUTION_TIME;
 
@@ -490,9 +490,9 @@ Deno.serve(async (req: Request) => {
 
     const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     const body = await req.json().catch(() => ({}));
-    const maxEmailsPerBatch = Math.min(body.batch_size || 20, 50);
+    const maxEmailsPerBatch = Math.min(body.batch_size || 10, 20);
 
-    console.log("SYNC LIMIT:", maxEmailsPerBatch);
+    console.log("SYNC LIMIT:", maxEmailsPerBatch, "| Timeout:", MAX_EXECUTION_TIME, "ms");
 
     let q = sb.from("mailboxes").select("*").eq("is_active", true);
     if (body.mailbox_id) q = q.eq("id", body.mailbox_id);
@@ -546,9 +546,25 @@ Deno.serve(async (req: Request) => {
       }
 
       if (syncState?.is_syncing) {
-        console.log(`[${mb.name}] Already syncing, skipping`);
-        results.push({ mailbox: mb.name, status: "skipped", reason: "Already syncing" });
-        continue;
+        const lastUpdate = new Date(syncState.updated_at || 0).getTime();
+        const now = Date.now();
+        const timeSinceLastUpdate = now - lastUpdate;
+
+        if (timeSinceLastUpdate > 30000) {
+          console.warn(`[${mb.name}] Sync appears stuck (${timeSinceLastUpdate}ms since last update), resetting`);
+          await sb
+            .from("sync_state")
+            .update({
+              is_syncing: false,
+              last_error: "Auto-reset stuck sync",
+              updated_at: new Date().toISOString()
+            })
+            .eq("mailbox_id", mb.id);
+        } else {
+          console.log(`[${mb.name}] Already syncing, skipping`);
+          results.push({ mailbox: mb.name, status: "skipped", reason: "Already syncing" });
+          continue;
+        }
       }
 
       await sb
