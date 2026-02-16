@@ -1,8 +1,13 @@
 import { useEffect, useState } from 'react';
-import { Plus, Edit3, Trash2, ToggleLeft, ToggleRight, Server, RefreshCw, Loader2, Zap } from 'lucide-react';
+import { Plus, Edit3, Trash2, ToggleLeft, ToggleRight, Server, RefreshCw, Loader2, Zap, AlertCircle } from 'lucide-react';
 import Modal from '../ui/Modal';
 import { supabase } from '../../lib/supabase';
 import type { Mailbox } from '../../lib/types';
+
+let isSyncing = false;
+let syncStartTime = 0;
+let currentSyncMailboxId: string | null = null;
+const MAX_SYNC_DURATION = 15000;
 
 export default function MailboxManager() {
   const [mailboxes, setMailboxes] = useState<Mailbox[]>([]);
@@ -12,6 +17,7 @@ export default function MailboxManager() {
   const [syncResult, setSyncResult] = useState<{ id: string; msg: string; ok: boolean } | null>(null);
   const [testing, setTesting] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<{ id: string; msg: string; ok: boolean; details?: any } | null>(null);
+  const [syncStuck, setSyncStuck] = useState(false);
   const [form, setForm] = useState({
     name: '', email_address: '', provider_type: 'imap',
     imap_host: '', imap_port: '993',
@@ -21,7 +27,30 @@ export default function MailboxManager() {
     ovh_consumer_key: '', ovh_domain: '', ovh_account: '',
   });
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+
+    const checkInterval = setInterval(() => {
+      if (isSyncing) {
+        const now = Date.now();
+        if (now - syncStartTime > MAX_SYNC_DURATION) {
+          console.warn('Auto-resetting stuck sync after', MAX_SYNC_DURATION, 'ms');
+          isSyncing = false;
+          syncStartTime = 0;
+          currentSyncMailboxId = null;
+          setSyncing(null);
+          setSyncStuck(true);
+          setSyncResult({
+            id: currentSyncMailboxId || '',
+            msg: 'Sync bloquée - réinitialisée automatiquement',
+            ok: false
+          });
+        }
+      }
+    }, 5000);
+
+    return () => clearInterval(checkInterval);
+  }, []);
 
   async function load() {
     const { data } = await supabase
@@ -202,9 +231,44 @@ export default function MailboxManager() {
     setTesting(null);
   }
 
+  function forceResetSync() {
+    console.warn('Manual sync reset triggered');
+    isSyncing = false;
+    syncStartTime = 0;
+    currentSyncMailboxId = null;
+    setSyncing(null);
+    setSyncStuck(false);
+    setSyncResult(null);
+  }
+
   async function handleSync(mb: Mailbox) {
+    if (isSyncing) {
+      const now = Date.now();
+
+      if (now - syncStartTime > MAX_SYNC_DURATION) {
+        console.warn('Sync was stuck, resetting state automatically');
+        isSyncing = false;
+        syncStartTime = 0;
+        currentSyncMailboxId = null;
+      } else {
+        console.log('Already syncing, skipping. Current sync mailbox:', currentSyncMailboxId);
+        setSyncResult({
+          id: mb.id,
+          msg: 'Une synchronisation est déjà en cours',
+          ok: false
+        });
+        return;
+      }
+    }
+
+    isSyncing = true;
+    syncStartTime = Date.now();
+    currentSyncMailboxId = mb.id;
     setSyncing(mb.id);
     setSyncResult(null);
+    setSyncStuck(false);
+
+    console.log('SYNC START for mailbox:', mb.id, 'at', new Date(syncStartTime).toISOString());
 
     let totalSynced = 0;
     let batchCount = 0;
@@ -213,7 +277,7 @@ export default function MailboxManager() {
     try {
       const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/sync-mailbox`;
 
-      while (hasMore) {
+      while (hasMore && isSyncing) {
         batchCount++;
 
         const res = await fetch(apiUrl, {
@@ -268,12 +332,19 @@ export default function MailboxManager() {
           ok: true
         });
       }
-    } catch (err: any) {
-      setSyncResult({ id: mb.id, msg: err.message || 'Erreur réseau', ok: false });
-    }
 
-    setSyncing(null);
-    load();
+      console.log('SYNC SUCCESS for mailbox:', mb.id, '- Total synced:', totalSynced);
+    } catch (err: any) {
+      console.error('SYNC ERROR for mailbox:', mb.id, '-', err);
+      setSyncResult({ id: mb.id, msg: err.message || 'Erreur réseau', ok: false });
+    } finally {
+      isSyncing = false;
+      syncStartTime = 0;
+      currentSyncMailboxId = null;
+      setSyncing(null);
+      console.log('SYNC END for mailbox:', mb.id, 'at', new Date().toISOString());
+      load();
+    }
   }
 
   return (
@@ -283,11 +354,47 @@ export default function MailboxManager() {
           <h3 className="text-lg font-semibold text-slate-900">Boîtes mail</h3>
           <p className="text-sm text-slate-500">Gérer les connexions aux boîtes mail OVH</p>
         </div>
-        <button onClick={openNew} className="flex items-center gap-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-medium rounded-lg transition">
-          <Plus className="w-4 h-4" />
-          Ajouter une boîte mail
-        </button>
+        <div className="flex items-center gap-2">
+          {(isSyncing || syncStuck) && (
+            <button
+              onClick={forceResetSync}
+              className="flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium rounded-lg transition"
+              title="Réinitialiser la synchronisation bloquée"
+            >
+              <AlertCircle className="w-4 h-4" />
+              Reset Sync
+            </button>
+          )}
+          <button onClick={openNew} className="flex items-center gap-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-medium rounded-lg transition">
+            <Plus className="w-4 h-4" />
+            Ajouter une boîte mail
+          </button>
+        </div>
       </div>
+
+      {syncStuck && (
+        <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2">
+          <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-sm font-medium text-amber-900">Synchronisation bloquée détectée</p>
+            <p className="text-xs text-amber-700 mt-0.5">
+              La synchronisation est restée bloquée pendant plus de {MAX_SYNC_DURATION / 1000} secondes. Elle a été réinitialisée automatiquement.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {isSyncing && syncing && (
+        <div className="mb-4 p-3 bg-cyan-50 border border-cyan-200 rounded-lg flex items-start gap-2">
+          <Loader2 className="w-5 h-5 text-cyan-600 flex-shrink-0 mt-0.5 animate-spin" />
+          <div className="flex-1">
+            <p className="text-sm font-medium text-cyan-900">Synchronisation en cours</p>
+            <p className="text-xs text-cyan-700 mt-0.5">
+              Boîte mail en cours de synchronisation. Durée maximale: {MAX_SYNC_DURATION / 1000}s
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="space-y-3">
         {mailboxes.map(mb => (
