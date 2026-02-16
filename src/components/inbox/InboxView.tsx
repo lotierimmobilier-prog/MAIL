@@ -436,7 +436,7 @@ export default function InboxView() {
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <p className={`text-sm text-slate-900 truncate group-hover:text-cyan-700 transition ${isUnread ? 'font-bold' : 'font-semibold'}`}>
+                      <p className={`text-sm text-slate-900 truncate group-hover:text-cyan-700 transition ${isUnread ? 'font-bold' : 'font-normal'}`}>
                         {ticket.subject}
                       </p>
                       {ticketAttachments.has(ticket.id) && (
@@ -447,7 +447,7 @@ export default function InboxView() {
                       )}
                     </div>
                     <div className="flex items-center gap-2 mt-1 text-xs text-slate-500">
-                      <span className="font-medium text-slate-700">
+                      <span className={`text-slate-700 ${isUnread ? 'font-semibold' : 'font-normal'}`}>
                         {ticket.contact_name || ticket.contact_email}
                       </span>
                       {mailbox && (
