@@ -40,6 +40,7 @@ export default function InboxView() {
     mailbox_id: '',
     category_id: '',
     due_date_filter: '',
+    read_status: 'all',
   });
 
   const loadData = useCallback(async (showRefresh = false) => {
@@ -158,6 +159,13 @@ export default function InboxView() {
         t.contact_name.toLowerCase().includes(q)
       );
     }
+
+    if (filters.read_status === 'unread') {
+      result = result.filter(t => !t.is_read);
+    } else if (filters.read_status === 'read') {
+      result = result.filter(t => t.is_read);
+    }
+
     return result;
   }, [tickets, filters]);
 

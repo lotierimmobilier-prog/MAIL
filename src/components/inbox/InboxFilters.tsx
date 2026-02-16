@@ -1,4 +1,4 @@
-import { Search, Filter, X } from 'lucide-react';
+import { Search, Filter, X, Eye, EyeOff, Mail } from 'lucide-react';
 import type { TicketStatus, TicketPriority, Category, Mailbox } from '../../lib/types';
 import { TICKET_STATUSES, TICKET_PRIORITIES } from '../../lib/constants';
 
@@ -9,6 +9,7 @@ export interface InboxFilterState {
   mailbox_id: string;
   category_id: string;
   due_date_filter: string;
+  read_status: 'all' | 'unread' | 'read';
 }
 
 interface InboxFiltersProps {
@@ -19,10 +20,10 @@ interface InboxFiltersProps {
 }
 
 export default function InboxFilters({ filters, onChange, categories, mailboxes }: InboxFiltersProps) {
-  const hasActiveFilters = filters.status || filters.priority || filters.mailbox_id || filters.category_id || filters.due_date_filter;
+  const hasActiveFilters = filters.status || filters.priority || filters.mailbox_id || filters.category_id || filters.due_date_filter || filters.read_status !== 'all';
 
   const clearFilters = () => {
-    onChange({ search: filters.search, status: '', priority: '', mailbox_id: '', category_id: '', due_date_filter: '' });
+    onChange({ search: filters.search, status: '', priority: '', mailbox_id: '', category_id: '', due_date_filter: '', read_status: 'all' });
   };
 
   return (
@@ -45,6 +46,45 @@ export default function InboxFilters({ filters, onChange, categories, mailboxes 
       </div>
 
       <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg p-0.5">
+          <button
+            onClick={() => onChange({ ...filters, read_status: 'all' })}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition ${
+              filters.read_status === 'all'
+                ? 'bg-white text-cyan-700 shadow-sm'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+            title="Tous les emails"
+          >
+            <Mail className="w-3.5 h-3.5" />
+            Tous
+          </button>
+          <button
+            onClick={() => onChange({ ...filters, read_status: 'unread' })}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition ${
+              filters.read_status === 'unread'
+                ? 'bg-white text-cyan-700 shadow-sm'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+            title="Emails non lus"
+          >
+            <Eye className="w-3.5 h-3.5" />
+            Non lus
+          </button>
+          <button
+            onClick={() => onChange({ ...filters, read_status: 'read' })}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition ${
+              filters.read_status === 'read'
+                ? 'bg-white text-cyan-700 shadow-sm'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+            title="Emails lus"
+          >
+            <EyeOff className="w-3.5 h-3.5" />
+            Lus
+          </button>
+        </div>
+
         <select
           value={filters.status}
           onChange={e => onChange({ ...filters, status: e.target.value as TicketStatus | '' })}
