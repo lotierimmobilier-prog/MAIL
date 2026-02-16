@@ -241,7 +241,7 @@ export default function MailboxManager() {
     setSyncResult(null);
   }
 
-  async function syncMailboxSafe(mb: Mailbox, batchSize: number = 10, syncMode: string = "new", offset: number = 0): Promise<{ success: boolean; synced: number; hasMore: boolean; nextOffset: number; remaining: number; error?: string }> {
+  async function syncMailboxSafe(mb: Mailbox, batchSize: number = 50, syncMode: string = "new", offset: number = 0): Promise<{ success: boolean; synced: number; hasMore: boolean; nextOffset: number; remaining: number; error?: string }> {
     try {
       const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/sync-mailbox`;
 
@@ -338,7 +338,7 @@ export default function MailboxManager() {
     while (hasMore && batchCount < maxBatches && isSyncing) {
       batchCount++;
 
-      const result = await syncMailboxSafe(mb, 10, mode, currentOffset);
+      const result = await syncMailboxSafe(mb, 50, mode, currentOffset);
 
       if (result.success) {
         totalSynced += result.synced;

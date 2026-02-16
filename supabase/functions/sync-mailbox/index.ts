@@ -507,7 +507,7 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 200, headers: cors });
 
   const startTime = Date.now();
-  const MAX_EXECUTION_TIME = 8000;
+  const MAX_EXECUTION_TIME = 15000;
 
   const isTimeout = () => Date.now() - startTime > MAX_EXECUTION_TIME;
 
@@ -516,7 +516,7 @@ Deno.serve(async (req: Request) => {
 
     const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     const body = await req.json().catch(() => ({}));
-    const maxEmailsPerBatch = Math.min(body.batch_size || 10, 20);
+    const maxEmailsPerBatch = Math.min(body.batch_size || 50, 100);
     const syncMode = body.sync_mode || "new";
 
     console.log("SYNC LIMIT:", maxEmailsPerBatch, "| Timeout:", MAX_EXECUTION_TIME, "ms | Mode:", syncMode);
