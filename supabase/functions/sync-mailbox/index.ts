@@ -115,7 +115,7 @@ async function decryptCredential(encryptedData: string, mailboxId: string): Prom
   return data.result;
 }
 
-async function syncOvhMailbox(mb: any, sb: any, syncState: any, maxEmailsPerBatch: number, startTime: number, maxExecutionTime: number) {
+async function syncOvhMailbox(mb: any, sb: any, syncState: any, maxEmailsPerBatch: number, isTimeout: () => boolean) {
   let consumerKey = mb.ovh_consumer_key;
 
   if (mb.ovh_consumer_key_secure) {
@@ -144,8 +144,8 @@ async function syncOvhMailbox(mb: any, sb: any, syncState: any, maxEmailsPerBatc
     console.log(`[${mb.name}] Total OVH emails: ${total}, last processed UID: ${lastProcessedUid}, processing ${emailIdsToProcess.length} new emails`);
 
     for (const emailId of emailIdsToProcess) {
-      if (Date.now() - startTime > maxExecutionTime) {
-        console.log(`[${mb.name}] Timeout reached, stopping OVH sync at email ${emailId}`);
+      if (isTimeout()) {
+        console.log(`[${mb.name}] Timeout reached, stopping sync safely`);
         break;
       }
       try {
@@ -481,19 +481,38 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 200, headers: cors });
 
   const startTime = Date.now();
-  const MAX_EXECUTION_TIME = 25000;
+  const MAX_EXECUTION_TIME = 4000;
+
+  const isTimeout = () => Date.now() - startTime > MAX_EXECUTION_TIME;
 
   try {
+    console.log("SYNC START");
+
     const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     const body = await req.json().catch(() => ({}));
     const maxEmailsPerBatch = Math.min(body.batch_size || 20, 50);
+
+    console.log("SYNC LIMIT:", maxEmailsPerBatch);
+
     let q = sb.from("mailboxes").select("*").eq("is_active", true);
     if (body.mailbox_id) q = q.eq("id", body.mailbox_id);
     const { data: mbs, error: e } = await q;
-    if (e) throw new Error(e.message);
-    if (!mbs?.length) return new Response(JSON.stringify({ error: "No mailboxes" }), { status: 404, headers: { ...cors, "Content-Type": "application/json" } });
 
-    console.log("SYNC START", { batch_size: maxEmailsPerBatch, mailbox_count: mbs.length, timestamp: new Date().toISOString() });
+    if (e) {
+      console.error("SYNC ERROR: Failed to fetch mailboxes", e.message);
+      return new Response(JSON.stringify({
+        success: false,
+        error: "Failed to fetch mailboxes"
+      }), { status: 200, headers: { ...cors, "Content-Type": "application/json" } });
+    }
+
+    if (!mbs?.length) {
+      console.log("SYNC END: No mailboxes found");
+      return new Response(JSON.stringify({
+        success: false,
+        error: "No mailboxes"
+      }), { status: 200, headers: { ...cors, "Content-Type": "application/json" } });
+    }
 
     const archiveDate = new Date();
     archiveDate.setDate(archiveDate.getDate() - 30);
@@ -538,7 +557,7 @@ Deno.serve(async (req: Request) => {
         .eq("mailbox_id", mb.id);
 
       if (mb.provider_type === "ovh") {
-        const result = await syncOvhMailbox(mb, sb, syncState, maxEmailsPerBatch, startTime, MAX_EXECUTION_TIME);
+        const result = await syncOvhMailbox(mb, sb, syncState, maxEmailsPerBatch, isTimeout);
         results.push(result);
         continue;
       }
@@ -550,12 +569,21 @@ Deno.serve(async (req: Request) => {
           password = await decryptCredential(mb.encrypted_password_secure, mb.id);
         } catch (err) {
           console.error(`Failed to decrypt password for mailbox ${mb.id}:`, err);
+          await sb.from("sync_state").update({
+            is_syncing: false,
+            last_error: "Failed to decrypt password",
+            updated_at: new Date().toISOString()
+          }).eq("mailbox_id", mb.id);
           results.push({ mailbox: mb.name, status: "error", error: "Failed to decrypt password" });
           continue;
         }
       }
 
       if (!password || password === "encrypted_placeholder") {
+        await sb.from("sync_state").update({
+          is_syncing: false,
+          updated_at: new Date().toISOString()
+        }).eq("mailbox_id", mb.id);
         results.push({ mailbox: mb.name, status: "skipped", reason: "No password" });
         continue;
       }
@@ -566,7 +594,22 @@ Deno.serve(async (req: Request) => {
         await imap.login(mb.username, password);
         const tot = await imap.select("INBOX");
 
-        const allSeqs = await imap.searchSeq();
+        let allSeqs: number[] = [];
+
+        try {
+          allSeqs = await imap.searchSeq();
+        } catch (imapError: any) {
+          console.error("IMAP ERROR:", imapError.message);
+          imap.close();
+          await sb.from("sync_state").update({
+            is_syncing: false,
+            last_error: "IMAP search failed",
+            updated_at: new Date().toISOString()
+          }).eq("mailbox_id", mb.id);
+          results.push({ mailbox: mb.name, status: "error", error: "IMAP search failed" });
+          continue;
+        }
+
         let synced = 0;
         let skipped = 0;
         let errors = 0;
@@ -581,8 +624,8 @@ Deno.serve(async (req: Request) => {
         console.log(`[${mb.name}] Total emails on server: ${tot}, last processed: ${lastProcessedSeq}, processing ${seqsToProcess.length} new emails`);
 
         for (const seq of seqsToProcess) {
-          if (Date.now() - startTime > MAX_EXECUTION_TIME) {
-            console.log(`[${mb.name}] Timeout reached, stopping sync at seq ${seq}`);
+          if (isTimeout()) {
+            console.log(`[${mb.name}] Timeout reached, stopping sync safely`);
             break;
           }
 
@@ -758,7 +801,9 @@ Deno.serve(async (req: Request) => {
     }
 
     const totalExecutionTime = Date.now() - startTime;
-    console.log("SYNC COMPLETE", {
+
+    console.log("SYNC SUCCESS");
+    console.log("SYNC END", {
       total_mailboxes: mbs.length,
       total_execution_time_ms: totalExecutionTime,
       results_count: results.length
@@ -768,15 +813,14 @@ Deno.serve(async (req: Request) => {
       success: true,
       results,
       execution_time_ms: totalExecutionTime
-    }), { headers: { ...cors, "Content-Type": "application/json" } });
+    }), { status: 200, headers: { ...cors, "Content-Type": "application/json" } });
   } catch (err: any) {
-    console.error("SYNC FATAL ERROR", {
-      error: err.message,
-      stack: err.stack
-    });
+    console.error("SYNC ERROR:", err.message);
+    console.error("SYNC END");
+
     return new Response(JSON.stringify({
       success: false,
-      error: err.message
-    }), { status: 500, headers: { ...cors, "Content-Type": "application/json" } });
+      error: err.message || "Unknown error"
+    }), { status: 200, headers: { ...cors, "Content-Type": "application/json" } });
   }
 });

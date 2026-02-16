@@ -174,7 +174,7 @@ export default function MailboxManager() {
           },
           body: JSON.stringify({
             mailbox_id: mb.id,
-            batch_size: 20
+            batch_size: 10
           }),
         });
 
