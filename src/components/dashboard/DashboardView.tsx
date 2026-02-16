@@ -227,7 +227,7 @@ export default function DashboardView() {
 
   const stats = [
     {
-      label: 'Total des tickets',
+      label: 'Total de Mails',
       value: counts.total,
       icon: Inbox,
       color: '#0891B2',

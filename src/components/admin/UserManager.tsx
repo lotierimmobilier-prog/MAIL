@@ -146,21 +146,28 @@ export default function UserManager() {
     }
 
     try {
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .delete()
-        .eq('id', user.id);
+      const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/delete-user`;
+      const { data: { session } } = await supabase.auth.getSession();
 
-      if (profileError) {
-        console.error('Error deleting profile:', profileError);
-        alert('Erreur lors de la suppression du profil');
+      if (!session) {
+        alert('Session expirée. Veuillez vous reconnecter.');
         return;
       }
 
-      const { error: authError } = await supabase.auth.admin.deleteUser(user.id);
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ userId: user.id })
+      });
 
-      if (authError) {
-        console.error('Error deleting auth user:', authError);
+      const result = await response.json();
+
+      if (!response.ok) {
+        alert(result.error || 'Erreur lors de la suppression de l\'utilisateur');
+        return;
       }
 
       alert('Utilisateur supprimé avec succès');
