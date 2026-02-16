@@ -155,33 +155,75 @@ export default function MailboxManager() {
   async function handleSync(mb: Mailbox) {
     setSyncing(mb.id);
     setSyncResult(null);
+
+    let totalSynced = 0;
+    let batchCount = 0;
+    let hasMore = true;
+
     try {
       const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/sync-mailbox`;
-      const res = await fetch(apiUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ mailbox_id: mb.id }),
-      });
-      const data = await res.json();
-      if (data.results?.[0]) {
-        const r = data.results[0];
-        if (r.status === 'ok') {
-          setSyncResult({ id: mb.id, msg: `${r.synced} nouveau${r.synced !== 1 ? 'x' : ''} email${r.synced !== 1 ? 's' : ''} synchronisé${r.synced !== 1 ? 's' : ''} sur ${r.total} disponible${r.total !== 1 ? 's' : ''}`, ok: true });
-        } else if (r.status === 'skipped') {
-          setSyncResult({ id: mb.id, msg: r.reason || 'Ignore', ok: false });
+
+      while (hasMore) {
+        batchCount++;
+
+        const res = await fetch(apiUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            mailbox_id: mb.id,
+            batch_size: 20
+          }),
+        });
+
+        const data = await res.json();
+
+        if (data.results?.[0]) {
+          const r = data.results[0];
+
+          if (r.status === 'ok') {
+            totalSynced += r.synced || 0;
+            hasMore = r.has_more === true;
+
+            setSyncResult({
+              id: mb.id,
+              msg: `Batch ${batchCount}: ${r.synced} email${r.synced !== 1 ? 's' : ''} synchronisé${r.synced !== 1 ? 's' : ''} (Total: ${totalSynced})${hasMore ? ' - En cours...' : ' - Terminé'}`,
+              ok: true
+            });
+
+            if (hasMore) {
+              await new Promise(resolve => setTimeout(resolve, 300));
+            }
+          } else if (r.status === 'skipped') {
+            setSyncResult({ id: mb.id, msg: r.reason || 'Ignoré', ok: false });
+            hasMore = false;
+          } else {
+            setSyncResult({ id: mb.id, msg: r.error || 'Erreur inconnue', ok: false });
+            hasMore = false;
+          }
+        } else if (data.error) {
+          setSyncResult({ id: mb.id, msg: data.error, ok: false });
+          hasMore = false;
         } else {
-          setSyncResult({ id: mb.id, msg: r.error || 'Erreur inconnue', ok: false });
+          hasMore = false;
         }
-      } else if (data.error) {
-        setSyncResult({ id: mb.id, msg: data.error, ok: false });
+      }
+
+      if (totalSynced > 0) {
+        setSyncResult({
+          id: mb.id,
+          msg: `Synchronisation terminée: ${totalSynced} email${totalSynced !== 1 ? 's' : ''} synchronisé${totalSynced !== 1 ? 's' : ''} en ${batchCount} batch${batchCount !== 1 ? 's' : ''}`,
+          ok: true
+        });
       }
     } catch (err: any) {
-      setSyncResult({ id: mb.id, msg: err.message || 'Erreur reseau', ok: false });
+      setSyncResult({ id: mb.id, msg: err.message || 'Erreur réseau', ok: false });
     }
+
     setSyncing(null);
+    load();
   }
 
   return (

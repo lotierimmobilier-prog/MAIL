@@ -115,7 +115,7 @@ async function decryptCredential(encryptedData: string, mailboxId: string): Prom
   return data.result;
 }
 
-async function syncOvhMailbox(mb: any, sb: any, syncState: any, maxEmailsPerBatch: number) {
+async function syncOvhMailbox(mb: any, sb: any, syncState: any, maxEmailsPerBatch: number, startTime: number, maxExecutionTime: number) {
   let consumerKey = mb.ovh_consumer_key;
 
   if (mb.ovh_consumer_key_secure) {
@@ -144,6 +144,10 @@ async function syncOvhMailbox(mb: any, sb: any, syncState: any, maxEmailsPerBatc
     console.log(`[${mb.name}] Total OVH emails: ${total}, last processed UID: ${lastProcessedUid}, processing ${emailIdsToProcess.length} new emails`);
 
     for (const emailId of emailIdsToProcess) {
+      if (Date.now() - startTime > maxExecutionTime) {
+        console.log(`[${mb.name}] Timeout reached, stopping OVH sync at email ${emailId}`);
+        break;
+      }
       try {
         const emailData = await ovhRequestWithConsumer(
           "GET",
@@ -193,7 +197,7 @@ async function syncOvhMailbox(mb: any, sb: any, syncState: any, maxEmailsPerBatc
         if (!tid) continue;
 
         const dir = fromAddr.toLowerCase() === mb.email_address.toLowerCase() ? "outbound" : "inbound";
-        const { data: insertedEmail } = await sb.from("emails").insert({
+        const { data: insertedEmail } = await sb.from("emails").upsert({
           ticket_id: tid,
           mailbox_id: mb.id,
           message_id: mid,
@@ -205,6 +209,9 @@ async function syncOvhMailbox(mb: any, sb: any, syncState: any, maxEmailsPerBatc
           body_html: emailData.bodyHtml || null,
           direction: dir,
           received_at: vd.toISOString(),
+        }, {
+          onConflict: "message_id",
+          ignoreDuplicates: false
         }).select("id").single();
 
         if (insertedEmail && isNewTicket && dir === "inbound") {
@@ -473,17 +480,20 @@ class Imap {
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 200, headers: cors });
 
+  const startTime = Date.now();
+  const MAX_EXECUTION_TIME = 25000;
+
   try {
     const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     const body = await req.json().catch(() => ({}));
-    const maxEmailsPerBatch = body.batch_size || 20;
+    const maxEmailsPerBatch = Math.min(body.batch_size || 20, 50);
     let q = sb.from("mailboxes").select("*").eq("is_active", true);
     if (body.mailbox_id) q = q.eq("id", body.mailbox_id);
     const { data: mbs, error: e } = await q;
     if (e) throw new Error(e.message);
     if (!mbs?.length) return new Response(JSON.stringify({ error: "No mailboxes" }), { status: 404, headers: { ...cors, "Content-Type": "application/json" } });
 
-    console.log(`Starting sync - processing ${maxEmailsPerBatch} emails per batch`);
+    console.log("SYNC START", { batch_size: maxEmailsPerBatch, mailbox_count: mbs.length, timestamp: new Date().toISOString() });
 
     const archiveDate = new Date();
     archiveDate.setDate(archiveDate.getDate() - 30);
@@ -528,7 +538,7 @@ Deno.serve(async (req: Request) => {
         .eq("mailbox_id", mb.id);
 
       if (mb.provider_type === "ovh") {
-        const result = await syncOvhMailbox(mb, sb, syncState, maxEmailsPerBatch);
+        const result = await syncOvhMailbox(mb, sb, syncState, maxEmailsPerBatch, startTime, MAX_EXECUTION_TIME);
         results.push(result);
         continue;
       }
@@ -571,6 +581,11 @@ Deno.serve(async (req: Request) => {
         console.log(`[${mb.name}] Total emails on server: ${tot}, last processed: ${lastProcessedSeq}, processing ${seqsToProcess.length} new emails`);
 
         for (const seq of seqsToProcess) {
+          if (Date.now() - startTime > MAX_EXECUTION_TIME) {
+            console.log(`[${mb.name}] Timeout reached, stopping sync at seq ${seq}`);
+            break;
+          }
+
           try {
             const raw = await imap.fetch(seq);
             if (!raw) {
@@ -622,7 +637,7 @@ Deno.serve(async (req: Request) => {
             if (!tid) continue;
 
             const dir = (from[0]?.address || "").toLowerCase() === mb.email_address.toLowerCase() ? "outbound" : "inbound";
-            const { data: insertedEmail } = await sb.from("emails").insert({
+            const { data: insertedEmail } = await sb.from("emails").upsert({
               ticket_id: tid, mailbox_id: mb.id, message_id: mid,
               in_reply_to: irt || null, references_header: refs.length ? refs.join(" ") : null,
               from_address: from[0]?.address || "", from_name: from[0]?.name || "",
@@ -630,6 +645,9 @@ Deno.serve(async (req: Request) => {
               cc_addresses: cc.map(a => a.address).filter(Boolean),
               subject: subj, body_text: text || null, body_html: html || null,
               direction: dir, received_at: vd.toISOString(),
+            }, {
+              onConflict: "message_id",
+              ignoreDuplicates: false
             }).select("id").single();
 
             if (insertedEmail && isNewTicket && dir === "inbound") {
@@ -695,11 +713,36 @@ Deno.serve(async (req: Request) => {
           .eq("mailbox_id", mb.id);
 
         const hasMore = sortedSeqs.filter(seq => seq > lastSeq).length > 0;
-        console.log(`[${mb.name}] Sync complete: ${synced} new emails synced, ${skipped} already present, ${errors} errors. Total on server: ${tot}. Has more: ${hasMore}`);
-        results.push({ mailbox: mb.name, status: "ok", synced, skipped, errors, total: tot, last_seq: lastSeq, has_more: hasMore });
+        const executionTime = Date.now() - startTime;
+        console.log("SYNC END", {
+          mailbox: mb.name,
+          synced,
+          skipped,
+          errors,
+          total: tot,
+          last_seq: lastSeq,
+          has_more: hasMore,
+          execution_time_ms: executionTime
+        });
+        results.push({
+          mailbox: mb.name,
+          status: "ok",
+          synced,
+          skipped,
+          errors,
+          total: tot,
+          last_seq: lastSeq,
+          has_more: hasMore,
+          next_offset: lastSeq,
+          execution_time_ms: executionTime
+        });
       } catch (err: any) {
         imap.close();
-        console.error(`[${mb.name}] Mailbox sync error:`, err);
+        console.error("SYNC ERROR", {
+          mailbox: mb.name,
+          error: err.message,
+          stack: err.stack
+        });
 
         await sb
           .from("sync_state")
@@ -714,8 +757,26 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    return new Response(JSON.stringify({ results }), { headers: { ...cors, "Content-Type": "application/json" } });
+    const totalExecutionTime = Date.now() - startTime;
+    console.log("SYNC COMPLETE", {
+      total_mailboxes: mbs.length,
+      total_execution_time_ms: totalExecutionTime,
+      results_count: results.length
+    });
+
+    return new Response(JSON.stringify({
+      success: true,
+      results,
+      execution_time_ms: totalExecutionTime
+    }), { headers: { ...cors, "Content-Type": "application/json" } });
   } catch (err: any) {
-    return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: { ...cors, "Content-Type": "application/json" } });
+    console.error("SYNC FATAL ERROR", {
+      error: err.message,
+      stack: err.stack
+    });
+    return new Response(JSON.stringify({
+      success: false,
+      error: err.message
+    }), { status: 500, headers: { ...cors, "Content-Type": "application/json" } });
   }
 });
