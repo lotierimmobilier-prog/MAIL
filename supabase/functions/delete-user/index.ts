@@ -1,4 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -23,6 +24,39 @@ Deno.serve(async (req: Request) => {
       );
     }
 
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+
+    const supabaseClient = createClient(supabaseUrl, supabaseServiceKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false
+      }
+    });
+
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { user }, error: authError } = await supabaseClient.auth.getUser(token);
+
+    if (authError || !user) {
+      return new Response(
+        JSON.stringify({ error: 'Non autorisé' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const { data: profile } = await supabaseClient
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single();
+
+    if (!profile || profile.role !== 'admin') {
+      return new Response(
+        JSON.stringify({ error: 'Accès refusé. Seuls les administrateurs peuvent supprimer des utilisateurs.' }),
+        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     const { userId } = await req.json();
 
     if (!userId) {
@@ -32,39 +66,19 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const supabaseAdminUrl = Deno.env.get('SUPABASE_URL') ?? '';
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+    const { error: deleteAuthError } = await supabaseClient.auth.admin.deleteUser(userId);
 
-    const deleteAuthUserResponse = await fetch(
-      `${supabaseAdminUrl}/auth/v1/admin/users/${userId}`,
-      {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${supabaseServiceKey}`,
-          'apikey': supabaseServiceKey,
-        },
-      }
-    );
-
-    if (!deleteAuthUserResponse.ok) {
-      console.error('Error deleting auth user:', await deleteAuthUserResponse.text());
+    if (deleteAuthError) {
+      console.error('Error deleting auth user:', deleteAuthError);
     }
 
-    const deleteProfileResponse = await fetch(
-      `${supabaseAdminUrl}/rest/v1/profiles?id=eq.${userId}`,
-      {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${supabaseServiceKey}`,
-          'apikey': supabaseServiceKey,
-          'Prefer': 'return=minimal',
-        },
-      }
-    );
+    const { error: deleteProfileError } = await supabaseClient
+      .from('profiles')
+      .delete()
+      .eq('id', userId);
 
-    if (!deleteProfileResponse.ok) {
-      const errorText = await deleteProfileResponse.text();
-      console.error('Error deleting profile:', errorText);
+    if (deleteProfileError) {
+      console.error('Error deleting profile:', deleteProfileError);
       return new Response(
         JSON.stringify({ error: 'Erreur lors de la suppression du profil' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
