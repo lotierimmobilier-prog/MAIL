@@ -115,7 +115,7 @@ async function decryptCredential(encryptedData: string, mailboxId: string): Prom
   return data.result;
 }
 
-async function syncOvhMailbox(mb: any, sb: any) {
+async function syncOvhMailbox(mb: any, sb: any, syncState: any, maxEmailsPerBatch: number) {
   let consumerKey = mb.ovh_consumer_key;
 
   if (mb.ovh_consumer_key_secure) {
@@ -135,8 +135,15 @@ async function syncOvhMailbox(mb: any, sb: any) {
 
     let synced = 0;
     const total = Array.isArray(emailIds) ? emailIds.length : 0;
+    const lastProcessedUid = syncState?.last_uid || 0;
 
-    for (const emailId of (Array.isArray(emailIds) ? emailIds : [])) {
+    const emailIdsToProcess = (Array.isArray(emailIds) ? emailIds : [])
+      .filter((id: number) => id > lastProcessedUid)
+      .slice(0, maxEmailsPerBatch);
+
+    console.log(`[${mb.name}] Total OVH emails: ${total}, last processed UID: ${lastProcessedUid}, processing ${emailIdsToProcess.length} new emails`);
+
+    for (const emailId of emailIdsToProcess) {
       try {
         const emailData = await ovhRequestWithConsumer(
           "GET",
@@ -220,8 +227,31 @@ async function syncOvhMailbox(mb: any, sb: any) {
       }
     }
 
-    return { mailbox: mb.name, status: "ok", synced, total };
+    const lastUid = emailIdsToProcess.length > 0 ? Math.max(...emailIdsToProcess) : lastProcessedUid;
+    await sb
+      .from("sync_state")
+      .update({
+        last_synced_at: new Date().toISOString(),
+        last_uid: lastUid,
+        total_emails_synced: (syncState?.total_emails_synced || 0) + synced,
+        is_syncing: false,
+        last_error: null,
+        updated_at: new Date().toISOString()
+      })
+      .eq("mailbox_id", mb.id);
+
+    const hasMore = (Array.isArray(emailIds) ? emailIds : []).filter((id: number) => id > lastUid).length > 0;
+    console.log(`[${mb.name}] OVH sync complete: ${synced} new emails synced. Has more: ${hasMore}`);
+    return { mailbox: mb.name, status: "ok", synced, total, last_uid: lastUid, has_more: hasMore };
   } catch (err: any) {
+    await sb
+      .from("sync_state")
+      .update({
+        is_syncing: false,
+        last_error: err.message,
+        updated_at: new Date().toISOString()
+      })
+      .eq("mailbox_id", mb.id);
     return { mailbox: mb.name, status: "error", error: err.message };
   }
 }
@@ -446,14 +476,14 @@ Deno.serve(async (req: Request) => {
   try {
     const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     const body = await req.json().catch(() => ({}));
-    const maxEmailsPerMailbox = 100;
+    const maxEmailsPerBatch = body.batch_size || 20;
     let q = sb.from("mailboxes").select("*").eq("is_active", true);
     if (body.mailbox_id) q = q.eq("id", body.mailbox_id);
     const { data: mbs, error: e } = await q;
     if (e) throw new Error(e.message);
     if (!mbs?.length) return new Response(JSON.stringify({ error: "No mailboxes" }), { status: 404, headers: { ...cors, "Content-Type": "application/json" } });
 
-    console.log(`Starting sync - searching all emails, keeping ${maxEmailsPerMailbox} most recent per mailbox`);
+    console.log(`Starting sync - processing ${maxEmailsPerBatch} emails per batch`);
 
     const archiveDate = new Date();
     archiveDate.setDate(archiveDate.getDate() - 30);
@@ -465,41 +495,40 @@ Deno.serve(async (req: Request) => {
     const results: any[] = [];
 
     for (const mb of mbs) {
-      const { count: emailCount } = await sb
-        .from("emails")
-        .select("*", { count: "exact", head: true })
-        .eq("mailbox_id", mb.id);
+      let { data: syncState } = await sb
+        .from("sync_state")
+        .select("*")
+        .eq("mailbox_id", mb.id)
+        .maybeSingle();
 
-      console.log(`[${mb.name}] Current email count: ${emailCount || 0}`);
-
-      if (emailCount && emailCount > maxEmailsPerMailbox) {
-        const toArchive = emailCount - maxEmailsPerMailbox;
-        console.log(`[${mb.name}] Archiving ${toArchive} oldest emails`);
-
-        const { data: oldEmails } = await sb
-          .from("emails")
-          .select("ticket_id")
-          .eq("mailbox_id", mb.id)
-          .order("received_at", { ascending: true })
-          .limit(toArchive);
-
-        if (oldEmails && oldEmails.length > 0) {
-          const ticketIds = [...new Set(oldEmails.map(e => e.ticket_id).filter(Boolean))];
-
-          if (ticketIds.length > 0) {
-            await sb
-              .from("tickets")
-              .update({
-                archived: true,
-                archived_at: new Date().toISOString()
-              })
-              .in("id", ticketIds);
-          }
-        }
+      if (!syncState) {
+        const { data: newState } = await sb
+          .from("sync_state")
+          .insert({
+            mailbox_id: mb.id,
+            last_synced_at: new Date(0).toISOString(),
+            last_sequence_number: 0,
+            total_emails_synced: 0,
+            is_syncing: false
+          })
+          .select()
+          .single();
+        syncState = newState;
       }
 
+      if (syncState?.is_syncing) {
+        console.log(`[${mb.name}] Already syncing, skipping`);
+        results.push({ mailbox: mb.name, status: "skipped", reason: "Already syncing" });
+        continue;
+      }
+
+      await sb
+        .from("sync_state")
+        .update({ is_syncing: true, updated_at: new Date().toISOString() })
+        .eq("mailbox_id", mb.id);
+
       if (mb.provider_type === "ovh") {
-        const result = await syncOvhMailbox(mb, sb);
+        const result = await syncOvhMailbox(mb, sb, syncState, maxEmailsPerBatch);
         results.push(result);
         continue;
       }
@@ -532,10 +561,16 @@ Deno.serve(async (req: Request) => {
         let skipped = 0;
         let errors = 0;
 
-        const sortedSeqs = [...allSeqs].sort((a, b) => b - a).slice(0, maxEmailsPerMailbox);
-        console.log(`[${mb.name}] Total emails on server: ${tot}, processing ${sortedSeqs.length} most recent emails`);
+        const sortedSeqs = [...allSeqs].sort((a, b) => b - a);
+        const lastProcessedSeq = syncState?.last_sequence_number || 0;
 
-        for (const seq of sortedSeqs) {
+        const seqsToProcess = sortedSeqs
+          .filter(seq => seq > lastProcessedSeq)
+          .slice(0, maxEmailsPerBatch);
+
+        console.log(`[${mb.name}] Total emails on server: ${tot}, last processed: ${lastProcessedSeq}, processing ${seqsToProcess.length} new emails`);
+
+        for (const seq of seqsToProcess) {
           try {
             const raw = await imap.fetch(seq);
             if (!raw) {
@@ -645,11 +680,36 @@ Deno.serve(async (req: Request) => {
           }
         }
         imap.close();
-        console.log(`[${mb.name}] Sync complete: ${synced} new emails synced, ${skipped} already present, ${errors} errors. Total on server: ${tot}`);
-        results.push({ mailbox: mb.name, status: "ok", synced, skipped, errors, total: tot });
+
+        const lastSeq = seqsToProcess.length > 0 ? Math.max(...seqsToProcess) : lastProcessedSeq;
+        await sb
+          .from("sync_state")
+          .update({
+            last_synced_at: new Date().toISOString(),
+            last_sequence_number: lastSeq,
+            total_emails_synced: (syncState?.total_emails_synced || 0) + synced,
+            is_syncing: false,
+            last_error: null,
+            updated_at: new Date().toISOString()
+          })
+          .eq("mailbox_id", mb.id);
+
+        const hasMore = sortedSeqs.filter(seq => seq > lastSeq).length > 0;
+        console.log(`[${mb.name}] Sync complete: ${synced} new emails synced, ${skipped} already present, ${errors} errors. Total on server: ${tot}. Has more: ${hasMore}`);
+        results.push({ mailbox: mb.name, status: "ok", synced, skipped, errors, total: tot, last_seq: lastSeq, has_more: hasMore });
       } catch (err: any) {
         imap.close();
         console.error(`[${mb.name}] Mailbox sync error:`, err);
+
+        await sb
+          .from("sync_state")
+          .update({
+            is_syncing: false,
+            last_error: err.message,
+            updated_at: new Date().toISOString()
+          })
+          .eq("mailbox_id", mb.id);
+
         results.push({ mailbox: mb.name, status: "error", error: err.message });
       }
     }
