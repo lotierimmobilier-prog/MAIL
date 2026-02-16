@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Edit3, Trash2, ToggleLeft, ToggleRight, Server, RefreshCw, Loader2, Zap, AlertCircle } from 'lucide-react';
+import { Plus, Edit3, Trash2, ToggleLeft, ToggleRight, Server, RefreshCw, Loader2, Zap, AlertCircle, Download } from 'lucide-react';
 import Modal from '../ui/Modal';
 import { supabase } from '../../lib/supabase';
 import type { Mailbox } from '../../lib/types';
@@ -241,7 +241,7 @@ export default function MailboxManager() {
     setSyncResult(null);
   }
 
-  async function syncMailboxSafe(mb: Mailbox, batchSize: number = 10): Promise<{ success: boolean; synced: number; hasMore: boolean; error?: string }> {
+  async function syncMailboxSafe(mb: Mailbox, batchSize: number = 10, syncMode: string = "new", offset: number = 0): Promise<{ success: boolean; synced: number; hasMore: boolean; nextOffset: number; remaining: number; error?: string }> {
     try {
       const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/sync-mailbox`;
 
@@ -253,7 +253,9 @@ export default function MailboxManager() {
         },
         body: JSON.stringify({
           mailbox_id: mb.id,
-          batch_size: batchSize
+          batch_size: batchSize,
+          sync_mode: syncMode,
+          offset: offset
         }),
       });
 
@@ -270,13 +272,17 @@ export default function MailboxManager() {
           return {
             success: true,
             synced: r.synced || 0,
-            hasMore: r.has_more === true
+            hasMore: r.has_more === true,
+            nextOffset: r.next_offset || 0,
+            remaining: r.remaining || 0
           };
         } else if (r.status === 'skipped') {
           return {
             success: false,
             synced: 0,
             hasMore: false,
+            nextOffset: 0,
+            remaining: 0,
             error: r.reason || 'Ignoré'
           };
         } else {
@@ -284,6 +290,8 @@ export default function MailboxManager() {
             success: false,
             synced: 0,
             hasMore: false,
+            nextOffset: 0,
+            remaining: 0,
             error: r.error || 'Erreur inconnue'
           };
         }
@@ -294,6 +302,8 @@ export default function MailboxManager() {
           success: false,
           synced: 0,
           hasMore: false,
+          nextOffset: 0,
+          remaining: 0,
           error: data.error
         };
       }
@@ -302,6 +312,8 @@ export default function MailboxManager() {
         success: false,
         synced: 0,
         hasMore: false,
+        nextOffset: 0,
+        remaining: 0,
         error: 'Réponse invalide'
       };
     } catch (err: any) {
@@ -309,29 +321,37 @@ export default function MailboxManager() {
         success: false,
         synced: 0,
         hasMore: false,
+        nextOffset: 0,
+        remaining: 0,
         error: err.message || 'Erreur réseau'
       };
     }
   }
 
-  async function syncAllEmails(mb: Mailbox) {
+  async function syncAllEmails(mb: Mailbox, mode: string = "new") {
     let totalSynced = 0;
     let batchCount = 0;
     let hasMore = true;
-    const maxBatches = 1000;
+    let currentOffset = 0;
+    const maxBatches = 10000;
 
     while (hasMore && batchCount < maxBatches && isSyncing) {
       batchCount++;
 
-      const result = await syncMailboxSafe(mb, 10);
+      const result = await syncMailboxSafe(mb, 10, mode, currentOffset);
 
       if (result.success) {
         totalSynced += result.synced;
         hasMore = result.hasMore;
+        currentOffset = result.nextOffset;
+
+        const progressMsg = mode === "all"
+          ? `Batch ${batchCount}: ${result.synced} email${result.synced !== 1 ? 's' : ''} (Total: ${totalSynced}, Restant: ${result.remaining})${hasMore ? ' - En cours...' : ' - Terminé'}`
+          : `Batch ${batchCount}: ${result.synced} email${result.synced !== 1 ? 's' : ''} synchronisé${result.synced !== 1 ? 's' : ''} (Total: ${totalSynced})${hasMore ? ' - En cours...' : ' - Terminé'}`;
 
         setSyncResult({
           id: mb.id,
-          msg: `Batch ${batchCount}: ${result.synced} email${result.synced !== 1 ? 's' : ''} synchronisé${result.synced !== 1 ? 's' : ''} (Total: ${totalSynced})${hasMore ? ' - En cours...' : ' - Terminé'}`,
+          msg: progressMsg,
           ok: true
         });
 
@@ -363,7 +383,7 @@ export default function MailboxManager() {
     return totalSynced;
   }
 
-  async function handleSync(mb: Mailbox) {
+  async function handleSync(mb: Mailbox, mode: string = "new") {
     if (isSyncing) {
       const now = Date.now();
 
@@ -390,22 +410,27 @@ export default function MailboxManager() {
     setSyncResult(null);
     setSyncStuck(false);
 
-    console.log('SYNC START for mailbox:', mb.id, 'at', new Date(syncStartTime).toISOString());
+    const modeLabel = mode === "all" ? "COMPLÈTE" : "NOUVEAUX";
+    console.log(`SYNC ${modeLabel} START for mailbox:`, mb.id, 'at', new Date(syncStartTime).toISOString());
 
     try {
-      const totalSynced = await syncAllEmails(mb);
-      console.log('SYNC SUCCESS for mailbox:', mb.id, '- Total synced:', totalSynced);
+      const totalSynced = await syncAllEmails(mb, mode);
+      console.log(`SYNC ${modeLabel} SUCCESS for mailbox:`, mb.id, '- Total synced:', totalSynced);
     } catch (err: any) {
-      console.error('SYNC ERROR for mailbox:', mb.id, '-', err);
+      console.error(`SYNC ${modeLabel} ERROR for mailbox:`, mb.id, '-', err);
       setSyncResult({ id: mb.id, msg: err.message || 'Erreur réseau', ok: false });
     } finally {
       isSyncing = false;
       syncStartTime = 0;
       currentSyncMailboxId = null;
       setSyncing(null);
-      console.log('SYNC END for mailbox:', mb.id, 'at', new Date().toISOString());
+      console.log(`SYNC ${modeLabel} END for mailbox:`, mb.id, 'at', new Date().toISOString());
       load();
     }
+  }
+
+  async function handleSyncAll(mb: Mailbox) {
+    return handleSync(mb, "all");
   }
 
   return (
@@ -506,15 +531,27 @@ export default function MailboxManager() {
                 </button>
               )}
               <button
-                onClick={() => handleSync(mb)}
+                onClick={() => handleSync(mb, "new")}
                 disabled={syncing !== null}
                 className="p-2 rounded-lg text-slate-400 hover:text-cyan-600 hover:bg-cyan-50 transition disabled:opacity-50"
-                title="Synchroniser les emails"
+                title="Synchroniser les nouveaux emails"
               >
                 {syncing === mb.id ? (
                   <Loader2 className="w-4 h-4 animate-spin text-cyan-500" />
                 ) : (
                   <RefreshCw className="w-4 h-4" />
+                )}
+              </button>
+              <button
+                onClick={() => handleSyncAll(mb)}
+                disabled={syncing !== null}
+                className="p-2 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition disabled:opacity-50"
+                title="Synchroniser TOUS les emails (historique complet)"
+              >
+                {syncing === mb.id ? (
+                  <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
+                ) : (
+                  <Download className="w-4 h-4" />
                 )}
               </button>
               <button onClick={() => toggleActive(mb)} className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition">

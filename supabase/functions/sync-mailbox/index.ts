@@ -115,7 +115,7 @@ async function decryptCredential(encryptedData: string, mailboxId: string): Prom
   return data.result;
 }
 
-async function syncOvhMailbox(mb: any, sb: any, syncState: any, maxEmailsPerBatch: number, isTimeout: () => boolean) {
+async function syncOvhMailbox(mb: any, sb: any, syncState: any, maxEmailsPerBatch: number, isTimeout: () => boolean, syncMode: string, offset: number) {
   let consumerKey = mb.ovh_consumer_key;
 
   if (mb.ovh_consumer_key_secure) {
@@ -137,11 +137,27 @@ async function syncOvhMailbox(mb: any, sb: any, syncState: any, maxEmailsPerBatc
     const total = Array.isArray(emailIds) ? emailIds.length : 0;
     const lastProcessedUid = syncState?.last_uid || 0;
 
-    const emailIdsToProcess = (Array.isArray(emailIds) ? emailIds : [])
-      .filter((id: number) => id > lastProcessedUid)
-      .slice(0, maxEmailsPerBatch);
+    let emailIdsToProcess: number[] = [];
+    let nextOffset = offset;
+    let hasMore = false;
+    let totalRemaining = 0;
 
-    console.log(`[${mb.name}] Total OVH emails: ${total}, last processed UID: ${lastProcessedUid}, processing ${emailIdsToProcess.length} new emails`);
+    if (syncMode === "all" || syncMode === "old") {
+      const sortedIds = (Array.isArray(emailIds) ? emailIds : []).sort((a: number, b: number) => b - a);
+      emailIdsToProcess = sortedIds.slice(offset, offset + maxEmailsPerBatch);
+      nextOffset = offset + emailIdsToProcess.length;
+      totalRemaining = sortedIds.length - nextOffset;
+      hasMore = nextOffset < sortedIds.length;
+      console.log(`[${mb.name}] Mode: ${syncMode} - Total OVH emails: ${total}, offset: ${offset}, processing ${emailIdsToProcess.length} emails`);
+    } else {
+      emailIdsToProcess = (Array.isArray(emailIds) ? emailIds : [])
+        .filter((id: number) => id > lastProcessedUid)
+        .slice(0, maxEmailsPerBatch);
+      const remainingIds = (Array.isArray(emailIds) ? emailIds : []).filter((id: number) => id > lastProcessedUid);
+      totalRemaining = remainingIds.length - emailIdsToProcess.length;
+      hasMore = totalRemaining > 0;
+      console.log(`[${mb.name}] Mode: new - Total OVH emails: ${total}, last processed UID: ${lastProcessedUid}, processing ${emailIdsToProcess.length} new emails`);
+    }
 
     for (const emailId of emailIdsToProcess) {
       if (isTimeout()) {
@@ -239,7 +255,7 @@ async function syncOvhMailbox(mb: any, sb: any, syncState: any, maxEmailsPerBatc
       .from("sync_state")
       .update({
         last_synced_at: new Date().toISOString(),
-        last_uid: lastUid,
+        last_uid: syncMode === "new" ? lastUid : syncState?.last_uid || 0,
         total_emails_synced: (syncState?.total_emails_synced || 0) + synced,
         is_syncing: false,
         last_error: null,
@@ -247,9 +263,19 @@ async function syncOvhMailbox(mb: any, sb: any, syncState: any, maxEmailsPerBatc
       })
       .eq("mailbox_id", mb.id);
 
-    const hasMore = (Array.isArray(emailIds) ? emailIds : []).filter((id: number) => id > lastUid).length > 0;
-    console.log(`[${mb.name}] OVH sync complete: ${synced} new emails synced. Has more: ${hasMore}`);
-    return { mailbox: mb.name, status: "ok", synced, total, last_uid: lastUid, has_more: hasMore };
+    console.log(`[${mb.name}] OVH sync complete: ${synced} emails synced. Has more: ${hasMore}, Remaining: ${totalRemaining}`);
+    return {
+      mailbox: mb.name,
+      status: "ok",
+      synced,
+      total,
+      mode: syncMode,
+      offset,
+      next_offset: nextOffset,
+      remaining: totalRemaining,
+      last_uid: lastUid,
+      has_more: hasMore
+    };
   } catch (err: any) {
     await sb
       .from("sync_state")
@@ -491,8 +517,9 @@ Deno.serve(async (req: Request) => {
     const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     const body = await req.json().catch(() => ({}));
     const maxEmailsPerBatch = Math.min(body.batch_size || 10, 20);
+    const syncMode = body.sync_mode || "new";
 
-    console.log("SYNC LIMIT:", maxEmailsPerBatch, "| Timeout:", MAX_EXECUTION_TIME, "ms");
+    console.log("SYNC LIMIT:", maxEmailsPerBatch, "| Timeout:", MAX_EXECUTION_TIME, "ms | Mode:", syncMode);
 
     let q = sb.from("mailboxes").select("*").eq("is_active", true);
     if (body.mailbox_id) q = q.eq("id", body.mailbox_id);
@@ -573,7 +600,7 @@ Deno.serve(async (req: Request) => {
         .eq("mailbox_id", mb.id);
 
       if (mb.provider_type === "ovh") {
-        const result = await syncOvhMailbox(mb, sb, syncState, maxEmailsPerBatch, isTimeout);
+        const result = await syncOvhMailbox(mb, sb, syncState, maxEmailsPerBatch, isTimeout, syncMode, body.offset || 0);
         results.push(result);
         continue;
       }
@@ -632,12 +659,20 @@ Deno.serve(async (req: Request) => {
 
         const sortedSeqs = [...allSeqs].sort((a, b) => b - a);
         const lastProcessedSeq = syncState?.last_sequence_number || 0;
+        const offset = body.offset || 0;
 
-        const seqsToProcess = sortedSeqs
-          .filter(seq => seq > lastProcessedSeq)
-          .slice(0, maxEmailsPerBatch);
+        let seqsToProcess: number[] = [];
 
-        console.log(`[${mb.name}] Total emails on server: ${tot}, last processed: ${lastProcessedSeq}, processing ${seqsToProcess.length} new emails`);
+        if (syncMode === "all" || syncMode === "old") {
+          seqsToProcess = sortedSeqs
+            .slice(offset, offset + maxEmailsPerBatch);
+          console.log(`[${mb.name}] Mode: ${syncMode} - Total emails: ${tot}, offset: ${offset}, processing ${seqsToProcess.length} emails`);
+        } else {
+          seqsToProcess = sortedSeqs
+            .filter(seq => seq > lastProcessedSeq)
+            .slice(0, maxEmailsPerBatch);
+          console.log(`[${mb.name}] Mode: new - Total emails: ${tot}, last processed: ${lastProcessedSeq}, processing ${seqsToProcess.length} new emails`);
+        }
 
         for (const seq of seqsToProcess) {
           if (isTimeout()) {
@@ -759,11 +794,25 @@ Deno.serve(async (req: Request) => {
         imap.close();
 
         const lastSeq = seqsToProcess.length > 0 ? Math.max(...seqsToProcess) : lastProcessedSeq;
+
+        let hasMore = false;
+        let nextOffset = offset;
+        let totalRemaining = 0;
+
+        if (syncMode === "all" || syncMode === "old") {
+          nextOffset = offset + seqsToProcess.length;
+          totalRemaining = sortedSeqs.length - nextOffset;
+          hasMore = nextOffset < sortedSeqs.length;
+        } else {
+          hasMore = sortedSeqs.filter(seq => seq > lastSeq).length > 0;
+          totalRemaining = sortedSeqs.filter(seq => seq > lastSeq).length;
+        }
+
         await sb
           .from("sync_state")
           .update({
             last_synced_at: new Date().toISOString(),
-            last_sequence_number: lastSeq,
+            last_sequence_number: syncMode === "new" ? lastSeq : syncState?.last_sequence_number || 0,
             total_emails_synced: (syncState?.total_emails_synced || 0) + synced,
             is_syncing: false,
             last_error: null,
@@ -771,7 +820,6 @@ Deno.serve(async (req: Request) => {
           })
           .eq("mailbox_id", mb.id);
 
-        const hasMore = sortedSeqs.filter(seq => seq > lastSeq).length > 0;
         const executionTime = Date.now() - startTime;
         console.log("SYNC END", {
           mailbox: mb.name,
@@ -779,7 +827,10 @@ Deno.serve(async (req: Request) => {
           skipped,
           errors,
           total: tot,
-          last_seq: lastSeq,
+          mode: syncMode,
+          offset,
+          next_offset: nextOffset,
+          remaining: totalRemaining,
           has_more: hasMore,
           execution_time_ms: executionTime
         });
@@ -790,9 +841,12 @@ Deno.serve(async (req: Request) => {
           skipped,
           errors,
           total: tot,
-          last_seq: lastSeq,
+          mode: syncMode,
+          offset,
+          next_offset: nextOffset,
+          remaining: totalRemaining,
           has_more: hasMore,
-          next_offset: lastSeq,
+          last_seq: lastSeq,
           execution_time_ms: executionTime
         });
       } catch (err: any) {
