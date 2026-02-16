@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Edit3, Trash2, ToggleLeft, ToggleRight, Server, RefreshCw, Loader2 } from 'lucide-react';
+import { Plus, Edit3, Trash2, ToggleLeft, ToggleRight, Server, RefreshCw, Loader2, Zap } from 'lucide-react';
 import Modal from '../ui/Modal';
 import { supabase } from '../../lib/supabase';
 import type { Mailbox } from '../../lib/types';
@@ -10,6 +10,8 @@ export default function MailboxManager() {
   const [selected, setSelected] = useState<Mailbox | null>(null);
   const [syncing, setSyncing] = useState<string | null>(null);
   const [syncResult, setSyncResult] = useState<{ id: string; msg: string; ok: boolean } | null>(null);
+  const [testing, setTesting] = useState<string | null>(null);
+  const [testResult, setTestResult] = useState<{ id: string; msg: string; ok: boolean; details?: any } | null>(null);
   const [form, setForm] = useState({
     name: '', email_address: '', provider_type: 'imap',
     imap_host: '', imap_port: '993',
@@ -152,6 +154,54 @@ export default function MailboxManager() {
     load();
   }
 
+  async function handleTestConnection(mb: Mailbox) {
+    setTesting(mb.id);
+    setTestResult(null);
+
+    try {
+      const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/test-imap-connection`;
+
+      const res = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          mailbox_id: mb.id,
+          imap_host: mb.imap_host,
+          imap_port: mb.imap_port,
+          username: mb.username,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        setTestResult({
+          id: mb.id,
+          msg: `✓ ${data.message} - ${data.details.email_count} emails trouvés (${data.details.timings.total_ms}ms)`,
+          ok: true,
+          details: data.details
+        });
+      } else {
+        setTestResult({
+          id: mb.id,
+          msg: `✗ ${data.error}`,
+          ok: false
+        });
+      }
+    } catch (err: any) {
+      setTestResult({
+        id: mb.id,
+        msg: `✗ Erreur: ${err.message || 'Erreur réseau'}`,
+        ok: false
+      });
+    }
+
+    setTesting(null);
+  }
+
   async function handleSync(mb: Mailbox) {
     setSyncing(mb.id);
     setSyncResult(null);
@@ -266,8 +316,27 @@ export default function MailboxManager() {
                   {syncResult.msg}
                 </p>
               )}
+              {testResult?.id === mb.id && (
+                <p className={`text-xs mt-1 ${testResult.ok ? 'text-emerald-600' : 'text-red-500'}`}>
+                  {testResult.msg}
+                </p>
+              )}
             </div>
             <div className="flex items-center gap-1">
+              {(mb as any).provider_type !== 'ovh' && (
+                <button
+                  onClick={() => handleTestConnection(mb)}
+                  disabled={testing !== null || syncing !== null}
+                  className="p-2 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition disabled:opacity-50"
+                  title="Tester la connexion IMAP"
+                >
+                  {testing === mb.id ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-amber-500" />
+                  ) : (
+                    <Zap className="w-4 h-4" />
+                  )}
+                </button>
+              )}
               <button
                 onClick={() => handleSync(mb)}
                 disabled={syncing !== null}
