@@ -115,7 +115,7 @@ async function decryptCredential(encryptedData: string, mailboxId: string): Prom
   return data.result;
 }
 
-async function syncOvhMailbox(mb: any, sb: any, syncState: any, maxEmailsPerBatch: number, isTimeout: () => boolean, syncMode: string, offset: number) {
+async function syncOvhMailbox(mb: any, sb: any, syncState: any, maxEmailsPerBatch: number, isTimeout: () => boolean, startUID: number) {
   let consumerKey = mb.ovh_consumer_key;
 
   if (mb.ovh_consumer_key_secure) {
@@ -133,37 +133,19 @@ async function syncOvhMailbox(mb: any, sb: any, syncState: any, maxEmailsPerBatc
       consumerKey
     );
 
+    const sortedIds = (Array.isArray(emailIds) ? emailIds : [])
+      .filter((id: number) => id >= startUID)
+      .sort((a: number, b: number) => a - b)
+      .slice(0, maxEmailsPerBatch);
+
     let synced = 0;
-    const total = Array.isArray(emailIds) ? emailIds.length : 0;
-    const lastProcessedUid = syncState?.last_uid || 0;
 
-    let emailIdsToProcess: number[] = [];
-    let nextOffset = offset;
-    let hasMore = false;
-    let totalRemaining = 0;
-
-    if (syncMode === "all" || syncMode === "old") {
-      const sortedIds = (Array.isArray(emailIds) ? emailIds : []).sort((a: number, b: number) => b - a);
-      emailIdsToProcess = sortedIds.slice(offset, offset + maxEmailsPerBatch);
-      nextOffset = offset + emailIdsToProcess.length;
-      totalRemaining = sortedIds.length - nextOffset;
-      hasMore = nextOffset < sortedIds.length;
-      console.log(`[${mb.name}] Mode: ${syncMode} - Total OVH emails: ${total}, offset: ${offset}, processing ${emailIdsToProcess.length} emails`);
-    } else {
-      emailIdsToProcess = (Array.isArray(emailIds) ? emailIds : [])
-        .filter((id: number) => id > lastProcessedUid)
-        .slice(0, maxEmailsPerBatch);
-      const remainingIds = (Array.isArray(emailIds) ? emailIds : []).filter((id: number) => id > lastProcessedUid);
-      totalRemaining = remainingIds.length - emailIdsToProcess.length;
-      hasMore = totalRemaining > 0;
-      console.log(`[${mb.name}] Mode: new - Total OVH emails: ${total}, last processed UID: ${lastProcessedUid}, processing ${emailIdsToProcess.length} new emails`);
-    }
-
-    for (const emailId of emailIdsToProcess) {
+    for (const emailId of sortedIds) {
       if (isTimeout()) {
-        console.log(`[${mb.name}] Timeout reached, stopping sync safely`);
+        console.log(`[${mb.name}] Timeout reached, stopping sync`);
         break;
       }
+
       try {
         const emailData = await ovhRequestWithConsumer(
           "GET",
@@ -245,17 +227,20 @@ async function syncOvhMailbox(mb: any, sb: any, syncState: any, maxEmailsPerBatc
         }).eq("id", tid).lt("last_message_at", vd.toISOString());
 
         synced++;
-      } catch {
+      } catch (err) {
+        console.error(`[${mb.name}] Error processing OVH email ${emailId}:`, err);
         continue;
       }
     }
 
-    const lastUid = emailIdsToProcess.length > 0 ? Math.max(...emailIdsToProcess) : lastProcessedUid;
+    const nextUID = sortedIds.length > 0 ? sortedIds[sortedIds.length - 1] + 1 : startUID;
+    const hasMore = sortedIds.length >= maxEmailsPerBatch;
+
     await sb
       .from("sync_state")
       .update({
         last_synced_at: new Date().toISOString(),
-        last_uid: syncMode === "new" ? lastUid : syncState?.last_uid || 0,
+        last_uid: nextUID,
         total_emails_synced: (syncState?.total_emails_synced || 0) + synced,
         is_syncing: false,
         last_error: null,
@@ -263,17 +248,12 @@ async function syncOvhMailbox(mb: any, sb: any, syncState: any, maxEmailsPerBatc
       })
       .eq("mailbox_id", mb.id);
 
-    console.log(`[${mb.name}] OVH sync complete: ${synced} emails synced. Has more: ${hasMore}, Remaining: ${totalRemaining}`);
+    console.log(`[${mb.name}] OVH sync: ${synced} synced, nextUID: ${nextUID}, hasMore: ${hasMore}`);
     return {
       mailbox: mb.name,
       status: "ok",
       synced,
-      total,
-      mode: syncMode,
-      offset,
-      next_offset: nextOffset,
-      remaining: totalRemaining,
-      last_uid: lastUid,
+      next_uid: nextUID,
       has_more: hasMore
     };
   } catch (err: any) {
@@ -287,11 +267,6 @@ async function syncOvhMailbox(mb: any, sb: any, syncState: any, maxEmailsPerBatc
       .eq("mailbox_id", mb.id);
     return { mailbox: mb.name, status: "error", error: err.message };
   }
-}
-
-function imapDate(d: Date): string {
-  const m = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  return `${d.getDate()}-${m[d.getMonth()]}-${d.getFullYear()}`;
 }
 
 function stripRe(s: string): string {
@@ -468,23 +443,16 @@ class Imap {
     return m ? parseInt(m[1]) : 0;
   }
 
-  async search(since?: Date): Promise<number[]> {
-    const searchCmd = since ? `UID SEARCH SINCE ${imapDate(since)}` : `UID SEARCH ALL`;
-    const r = await this.cmd(searchCmd);
+  async searchUIDRange(startUID: number, endUID: number): Promise<number[]> {
+    const r = await this.cmd(`UID SEARCH UID ${startUID}:${endUID}`);
     const m = r.match(/\*\s+SEARCH\s+([\d\s]+)/);
-    return m ? m[1].trim().split(/\s+/).filter(Boolean).map(Number) : [];
+    if (!m || !m[1].trim()) return [];
+    return m[1].trim().split(/\s+/).filter(Boolean).map(Number);
   }
 
-  async searchSeq(since?: Date): Promise<number[]> {
-    const searchCmd = since ? `SEARCH SINCE ${imapDate(since)}` : `SEARCH ALL`;
-    const r = await this.cmd(searchCmd);
-    const m = r.match(/\*\s+SEARCH\s+([\d\s]+)/);
-    return m ? m[1].trim().split(/\s+/).filter(Boolean).map(Number) : [];
-  }
-
-  async fetch(seq: number): Promise<string> {
+  async fetchUID(uid: number): Promise<string> {
     const tag = `A${++this.t}`;
-    await this.wr(`${tag} FETCH ${seq} RFC822\r\n`);
+    await this.wr(`${tag} UID FETCH ${uid} RFC822\r\n`);
     while (true) {
       const has = this.buf.includes(`\r\n${tag} OK`) || this.buf.includes(`\r\n${tag} NO`) || this.buf.includes(`\r\n${tag} BAD`);
       if (has) break;
@@ -507,7 +475,7 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 200, headers: cors });
 
   const startTime = Date.now();
-  const MAX_EXECUTION_TIME = 15000;
+  const MAX_EXECUTION_TIME = 4000;
 
   const isTimeout = () => Date.now() - startTime > MAX_EXECUTION_TIME;
 
@@ -516,37 +484,21 @@ Deno.serve(async (req: Request) => {
 
     const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     const body = await req.json().catch(() => ({}));
-    const maxEmailsPerBatch = Math.min(body.batch_size || 50, 100);
-    const syncMode = body.sync_mode || "new";
+    const maxEmailsPerBatch = 20;
+    const startUID = body.startUID || 1;
 
-    console.log("SYNC LIMIT:", maxEmailsPerBatch, "| Timeout:", MAX_EXECUTION_TIME, "ms | Mode:", syncMode);
+    console.log("SYNC - startUID:", startUID, "| Batch size:", maxEmailsPerBatch, "| Timeout:", MAX_EXECUTION_TIME, "ms");
 
     let q = sb.from("mailboxes").select("*").eq("is_active", true);
     if (body.mailbox_id) q = q.eq("id", body.mailbox_id);
     const { data: mbs, error: e } = await q;
 
-    if (e) {
-      console.error("SYNC ERROR: Failed to fetch mailboxes", e.message);
-      return new Response(JSON.stringify({
-        success: false,
-        error: "Failed to fetch mailboxes"
-      }), { status: 200, headers: { ...cors, "Content-Type": "application/json" } });
-    }
-
-    if (!mbs?.length) {
-      console.log("SYNC END: No mailboxes found");
+    if (e || !mbs?.length) {
       return new Response(JSON.stringify({
         success: false,
         error: "No mailboxes"
       }), { status: 200, headers: { ...cors, "Content-Type": "application/json" } });
     }
-
-    const archiveDate = new Date();
-    archiveDate.setDate(archiveDate.getDate() - 30);
-    await sb.from("tickets").update({
-      archived: true,
-      archived_at: new Date().toISOString()
-    }).lt("created_at", archiveDate.toISOString()).eq("archived", false);
 
     const results: any[] = [];
 
@@ -563,7 +515,7 @@ Deno.serve(async (req: Request) => {
           .insert({
             mailbox_id: mb.id,
             last_synced_at: new Date(0).toISOString(),
-            last_sequence_number: 0,
+            last_uid: 0,
             total_emails_synced: 0,
             is_syncing: false
           })
@@ -574,11 +526,9 @@ Deno.serve(async (req: Request) => {
 
       if (syncState?.is_syncing) {
         const lastUpdate = new Date(syncState.updated_at || 0).getTime();
-        const now = Date.now();
-        const timeSinceLastUpdate = now - lastUpdate;
+        const timeSinceLastUpdate = Date.now() - lastUpdate;
 
         if (timeSinceLastUpdate > 30000) {
-          console.warn(`[${mb.name}] Sync appears stuck (${timeSinceLastUpdate}ms since last update), resetting`);
           await sb
             .from("sync_state")
             .update({
@@ -588,7 +538,6 @@ Deno.serve(async (req: Request) => {
             })
             .eq("mailbox_id", mb.id);
         } else {
-          console.log(`[${mb.name}] Already syncing, skipping`);
           results.push({ mailbox: mb.name, status: "skipped", reason: "Already syncing" });
           continue;
         }
@@ -600,7 +549,7 @@ Deno.serve(async (req: Request) => {
         .eq("mailbox_id", mb.id);
 
       if (mb.provider_type === "ovh") {
-        const result = await syncOvhMailbox(mb, sb, syncState, maxEmailsPerBatch, isTimeout, syncMode, body.offset || 0);
+        const result = await syncOvhMailbox(mb, sb, syncState, maxEmailsPerBatch, isTimeout, startUID);
         results.push(result);
         continue;
       }
@@ -611,7 +560,6 @@ Deno.serve(async (req: Request) => {
         try {
           password = await decryptCredential(mb.encrypted_password_secure, mb.id);
         } catch (err) {
-          console.error(`Failed to decrypt password for mailbox ${mb.id}:`, err);
           await sb.from("sync_state").update({
             is_syncing: false,
             last_error: "Failed to decrypt password",
@@ -635,66 +583,31 @@ Deno.serve(async (req: Request) => {
       try {
         await imap.open(mb.imap_host, mb.imap_port);
         await imap.login(mb.username, password);
-        const tot = await imap.select("INBOX");
+        await imap.select("INBOX");
 
-        let allSeqs: number[] = [];
+        const endUID = startUID + maxEmailsPerBatch - 1;
+        const uids = await imap.searchUIDRange(startUID, endUID);
 
-        try {
-          allSeqs = await imap.searchSeq();
-        } catch (imapError: any) {
-          console.error("IMAP ERROR:", imapError.message);
-          imap.close();
-          await sb.from("sync_state").update({
-            is_syncing: false,
-            last_error: "IMAP search failed",
-            updated_at: new Date().toISOString()
-          }).eq("mailbox_id", mb.id);
-          results.push({ mailbox: mb.name, status: "error", error: "IMAP search failed" });
-          continue;
-        }
+        console.log(`[${mb.name}] Found ${uids.length} UIDs in range ${startUID}:${endUID}`);
 
         let synced = 0;
-        let skipped = 0;
-        let errors = 0;
 
-        const sortedSeqs = [...allSeqs].sort((a, b) => b - a);
-        const lastProcessedSeq = syncState?.last_sequence_number || 0;
-        const offset = body.offset || 0;
-
-        let seqsToProcess: number[] = [];
-
-        if (syncMode === "all" || syncMode === "old") {
-          seqsToProcess = sortedSeqs
-            .slice(offset, offset + maxEmailsPerBatch);
-          console.log(`[${mb.name}] Mode: ${syncMode} - Total emails: ${tot}, offset: ${offset}, processing ${seqsToProcess.length} emails`);
-        } else {
-          seqsToProcess = sortedSeqs
-            .filter(seq => seq > lastProcessedSeq)
-            .slice(0, maxEmailsPerBatch);
-          console.log(`[${mb.name}] Mode: new - Total emails: ${tot}, last processed: ${lastProcessedSeq}, processing ${seqsToProcess.length} new emails`);
-        }
-
-        for (const seq of seqsToProcess) {
+        for (const uid of uids) {
           if (isTimeout()) {
-            console.log(`[${mb.name}] Timeout reached, stopping sync safely`);
+            console.log(`[${mb.name}] Timeout reached`);
             break;
           }
 
           try {
-            const raw = await imap.fetch(seq);
-            if (!raw) {
-              errors++;
-              continue;
-            }
+            const raw = await imap.fetchUID(uid);
+            if (!raw) continue;
+
             const hi = raw.indexOf("\r\n\r\n");
             const hdr = parseHeaders(hi >= 0 ? raw.substring(0, hi) : raw);
-            const mid = (hdr["message-id"] || "").replace(/[<>]/g, "").trim() || `seq-${seq}-${mb.id}`;
+            const mid = (hdr["message-id"] || "").replace(/[<>]/g, "").trim() || `uid-${uid}-${mb.id}`;
 
             const { data: ex } = await sb.from("emails").select("id").eq("message_id", mid).maybeSingle();
-            if (ex) {
-              skipped++;
-              continue;
-            }
+            if (ex) continue;
 
             const subj = decHdr(hdr["subject"] || "");
             const from = parseAddr(decHdr(hdr["from"] || ""));
@@ -786,33 +699,21 @@ Deno.serve(async (req: Request) => {
             await sb.from("tickets").update({ last_message_at: vd.toISOString(), updated_at: new Date().toISOString() }).eq("id", tid).lt("last_message_at", vd.toISOString());
             synced++;
           } catch (e) {
-            errors++;
-            console.error(`[${mb.name}] Error processing seq ${seq}:`, e);
+            console.error(`[${mb.name}] Error processing UID ${uid}:`, e);
             continue;
           }
         }
+
         imap.close();
 
-        const lastSeq = seqsToProcess.length > 0 ? Math.max(...seqsToProcess) : lastProcessedSeq;
-
-        let hasMore = false;
-        let nextOffset = offset;
-        let totalRemaining = 0;
-
-        if (syncMode === "all" || syncMode === "old") {
-          nextOffset = offset + seqsToProcess.length;
-          totalRemaining = sortedSeqs.length - nextOffset;
-          hasMore = nextOffset < sortedSeqs.length;
-        } else {
-          hasMore = sortedSeqs.filter(seq => seq > lastSeq).length > 0;
-          totalRemaining = sortedSeqs.filter(seq => seq > lastSeq).length;
-        }
+        const nextUID = uids.length > 0 ? Math.max(...uids) + 1 : startUID;
+        const hasMore = uids.length >= maxEmailsPerBatch;
 
         await sb
           .from("sync_state")
           .update({
             last_synced_at: new Date().toISOString(),
-            last_sequence_number: syncMode === "new" ? lastSeq : syncState?.last_sequence_number || 0,
+            last_uid: nextUID,
             total_emails_synced: (syncState?.total_emails_synced || 0) + synced,
             is_syncing: false,
             last_error: null,
@@ -820,42 +721,17 @@ Deno.serve(async (req: Request) => {
           })
           .eq("mailbox_id", mb.id);
 
-        const executionTime = Date.now() - startTime;
-        console.log("SYNC END", {
-          mailbox: mb.name,
-          synced,
-          skipped,
-          errors,
-          total: tot,
-          mode: syncMode,
-          offset,
-          next_offset: nextOffset,
-          remaining: totalRemaining,
-          has_more: hasMore,
-          execution_time_ms: executionTime
-        });
+        console.log(`[${mb.name}] Synced ${synced} emails, nextUID: ${nextUID}, hasMore: ${hasMore}`);
         results.push({
           mailbox: mb.name,
           status: "ok",
           synced,
-          skipped,
-          errors,
-          total: tot,
-          mode: syncMode,
-          offset,
-          next_offset: nextOffset,
-          remaining: totalRemaining,
-          has_more: hasMore,
-          last_seq: lastSeq,
-          execution_time_ms: executionTime
+          next_uid: nextUID,
+          has_more: hasMore
         });
       } catch (err: any) {
         imap.close();
-        console.error("SYNC ERROR", {
-          mailbox: mb.name,
-          error: err.message,
-          stack: err.stack
-        });
+        console.error(`[${mb.name}] Error:`, err.message);
 
         await sb
           .from("sync_state")
@@ -870,23 +746,12 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    const totalExecutionTime = Date.now() - startTime;
-
-    console.log("SYNC SUCCESS");
-    console.log("SYNC END", {
-      total_mailboxes: mbs.length,
-      total_execution_time_ms: totalExecutionTime,
-      results_count: results.length
-    });
-
     return new Response(JSON.stringify({
       success: true,
-      results,
-      execution_time_ms: totalExecutionTime
+      results
     }), { status: 200, headers: { ...cors, "Content-Type": "application/json" } });
   } catch (err: any) {
     console.error("SYNC ERROR:", err.message);
-    console.error("SYNC END");
 
     return new Response(JSON.stringify({
       success: false,

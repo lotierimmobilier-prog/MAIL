@@ -241,7 +241,7 @@ export default function MailboxManager() {
     setSyncResult(null);
   }
 
-  async function syncMailboxSafe(mb: Mailbox, batchSize: number = 50, syncMode: string = "new", offset: number = 0): Promise<{ success: boolean; synced: number; hasMore: boolean; nextOffset: number; remaining: number; error?: string }> {
+  async function syncMailboxSafe(mb: Mailbox, startUID: number = 1): Promise<{ success: boolean; synced: number; hasMore: boolean; nextUID: number; error?: string }> {
     try {
       const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/sync-mailbox`;
 
@@ -253,9 +253,7 @@ export default function MailboxManager() {
         },
         body: JSON.stringify({
           mailbox_id: mb.id,
-          batch_size: batchSize,
-          sync_mode: syncMode,
-          offset: offset
+          startUID: startUID
         }),
       });
 
@@ -273,16 +271,14 @@ export default function MailboxManager() {
             success: true,
             synced: r.synced || 0,
             hasMore: r.has_more === true,
-            nextOffset: r.next_offset || 0,
-            remaining: r.remaining || 0
+            nextUID: r.next_uid || startUID
           };
         } else if (r.status === 'skipped') {
           return {
             success: false,
             synced: 0,
             hasMore: false,
-            nextOffset: 0,
-            remaining: 0,
+            nextUID: startUID,
             error: r.reason || 'Ignoré'
           };
         } else {
@@ -290,8 +286,7 @@ export default function MailboxManager() {
             success: false,
             synced: 0,
             hasMore: false,
-            nextOffset: 0,
-            remaining: 0,
+            nextUID: startUID,
             error: r.error || 'Erreur inconnue'
           };
         }
@@ -302,8 +297,7 @@ export default function MailboxManager() {
           success: false,
           synced: 0,
           hasMore: false,
-          nextOffset: 0,
-          remaining: 0,
+          nextUID: startUID,
           error: data.error
         };
       }
@@ -312,8 +306,7 @@ export default function MailboxManager() {
         success: false,
         synced: 0,
         hasMore: false,
-        nextOffset: 0,
-        remaining: 0,
+        nextUID: startUID,
         error: 'Réponse invalide'
       };
     } catch (err: any) {
@@ -321,8 +314,7 @@ export default function MailboxManager() {
         success: false,
         synced: 0,
         hasMore: false,
-        nextOffset: 0,
-        remaining: 0,
+        nextUID: startUID,
         error: err.message || 'Erreur réseau'
       };
     }
@@ -332,22 +324,20 @@ export default function MailboxManager() {
     let totalSynced = 0;
     let batchCount = 0;
     let hasMore = true;
-    let currentOffset = 0;
+    let currentUID = 1;
     const maxBatches = 10000;
 
     while (hasMore && batchCount < maxBatches && isSyncing) {
       batchCount++;
 
-      const result = await syncMailboxSafe(mb, 50, mode, currentOffset);
+      const result = await syncMailboxSafe(mb, currentUID);
 
       if (result.success) {
         totalSynced += result.synced;
         hasMore = result.hasMore;
-        currentOffset = result.nextOffset;
+        currentUID = result.nextUID;
 
-        const progressMsg = mode === "all"
-          ? `Batch ${batchCount}: ${result.synced} email${result.synced !== 1 ? 's' : ''} (Total: ${totalSynced}, Restant: ${result.remaining})${hasMore ? ' - En cours...' : ' - Terminé'}`
-          : `Batch ${batchCount}: ${result.synced} email${result.synced !== 1 ? 's' : ''} synchronisé${result.synced !== 1 ? 's' : ''} (Total: ${totalSynced})${hasMore ? ' - En cours...' : ' - Terminé'}`;
+        const progressMsg = `Batch ${batchCount}: ${result.synced} email${result.synced !== 1 ? 's' : ''} synchronisé${result.synced !== 1 ? 's' : ''} (Total: ${totalSynced})${hasMore ? ' - En cours...' : ' - Terminé'}`;
 
         setSyncResult({
           id: mb.id,
