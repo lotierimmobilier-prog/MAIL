@@ -19,7 +19,7 @@ Deno.serve(async (req: Request) => {
     );
 
     const body = await req.json().catch(() => ({}));
-    const { mailbox_id, batch_size = 20, job_type = "incremental_sync" } = body;
+    const { mailbox_id, batch_size = 10, job_type = "incremental_sync" } = body;
 
     let mailboxes: any[] = [];
 

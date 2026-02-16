@@ -7,8 +7,8 @@ const cors = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
 };
 
-const EXECUTION_TIMEOUT = 50000;
-const MAX_BATCH_SIZE = 50;
+const EXECUTION_TIMEOUT = 45000;
+const MAX_BATCH_SIZE = 15;
 
 function stripRe(s: string): string {
   return s.replace(/^(Re|Fwd|Fw|TR|AW|Ref):\s*/gi, "").trim();
@@ -183,13 +183,42 @@ async function processEmailBatch(job: any, mailbox: any, sb: any): Promise<{ syn
 
   if (!state) throw new Error("Sync state not found");
 
+  // Decrypt password
+  let password = mailbox.encrypted_password;
+  if (mailbox.encrypted_password_secure) {
+    try {
+      const cryptoUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/crypto-credentials`;
+      const decryptRes = await fetch(cryptoUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          operation: 'decrypt',
+          data: mailbox.encrypted_password_secure,
+          mailboxId: mailbox.id
+        })
+      });
+
+      if (decryptRes.ok) {
+        const decryptData = await decryptRes.json();
+        password = decryptData.result;
+      } else {
+        console.error(`[${mailbox.name}] Failed to decrypt password, using fallback`);
+      }
+    } catch (err) {
+      console.error(`[${mailbox.name}] Decryption error:`, err);
+    }
+  }
+
   const imap = new Imap();
   let synced = 0, skipped = 0, errors = 0;
   let completed = false;
 
   try {
     await imap.open(mailbox.imap_host, mailbox.imap_port);
-    await imap.login(mailbox.username, mailbox.encrypted_password);
+    await imap.login(mailbox.username, password);
     await imap.select("INBOX");
 
     const allSeqs = await imap.searchSeq();
