@@ -89,14 +89,6 @@ export default function UserManager() {
 
     setCreating(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-
-      if (!session) {
-        alert('Session expirée. Veuillez vous reconnecter.');
-        setCreating(false);
-        return;
-      }
-
       console.log('[UserManager] Creating user:', { email, fullName, role });
 
       const { data, error } = await callEdgeFunction<{
@@ -118,6 +110,7 @@ export default function UserManager() {
           avatarColor,
           mailboxPermissions
         },
+        useUserToken: true,
         timeout: 15000
       });
 
@@ -155,13 +148,6 @@ export default function UserManager() {
     }
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-
-      if (!session) {
-        alert('Session expirée. Veuillez vous reconnecter.');
-        return;
-      }
-
       console.log('[UserManager] Deleting user:', user.id);
 
       const { data, error } = await callEdgeFunction<{
@@ -170,6 +156,7 @@ export default function UserManager() {
       }>({
         functionName: 'delete-user',
         body: { userId: user.id },
+        useUserToken: true,
         timeout: 15000
       });
 

@@ -1,7 +1,10 @@
+import { supabase } from './supabase';
+
 interface EdgeFunctionOptions {
   functionName: string;
   body?: any;
   useServiceRole?: boolean;
+  useUserToken?: boolean;
   timeout?: number;
 }
 
@@ -18,13 +21,38 @@ export async function callEdgeFunction<T = any>(
     functionName,
     body,
     useServiceRole = false,
+    useUserToken = false,
     timeout = 30000
   } = options;
 
   const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${functionName}`;
-  const apiKey = useServiceRole
-    ? import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY
-    : import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+  let authToken: string;
+
+  if (useUserToken) {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      console.error('[EdgeFunction] No user session found');
+      return {
+        error: 'Session expirée. Veuillez vous reconnecter.',
+        status: 401
+      };
+    }
+    authToken = session.access_token;
+    console.log('[EdgeFunction] Using user session token');
+  } else {
+    const apiKey = useServiceRole
+      ? import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY
+      : import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+    if (!apiKey || apiKey.includes('undefined')) {
+      console.error('[EdgeFunction] API key not configured');
+      return {
+        error: 'Configuration manquante : clé API Supabase'
+      };
+    }
+    authToken = apiKey;
+  }
 
   if (!apiUrl || apiUrl.includes('undefined')) {
     console.error('[EdgeFunction] VITE_SUPABASE_URL not configured');
@@ -33,17 +61,11 @@ export async function callEdgeFunction<T = any>(
     };
   }
 
-  if (!apiKey || apiKey.includes('undefined')) {
-    console.error('[EdgeFunction] API key not configured');
-    return {
-      error: 'Configuration manquante : clé API Supabase'
-    };
-  }
-
   console.log(`[EdgeFunction] Calling ${functionName}`, {
     url: apiUrl,
     hasBody: !!body,
     useServiceRole,
+    useUserToken,
     timeout
   });
 
@@ -59,7 +81,7 @@ export async function callEdgeFunction<T = any>(
     const response = await fetch(apiUrl, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${apiKey}`,
+        'Authorization': `Bearer ${authToken}`,
         'Content-Type': 'application/json',
       },
       body: body ? JSON.stringify(body) : undefined,
