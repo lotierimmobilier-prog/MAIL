@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { format, isToday, isPast, isFuture } from 'date-fns';
 import { fr } from 'date-fns/locale';
-import { Inbox, Mail, RefreshCw, Trash2, CheckSquare, Square, MinusSquare, Download, Loader2, PenSquare, Paperclip, Calendar, Sparkles } from 'lucide-react';
+import { Inbox, Mail, RefreshCw, Trash2, CheckSquare, Square, MinusSquare, Download, Loader2, PenSquare, Paperclip, Calendar } from 'lucide-react';
 import Header from '../layout/Header';
 import InboxFilters, { type InboxFilterState } from './InboxFilters';
 import Pagination from './Pagination';
@@ -43,7 +43,6 @@ export default function InboxView() {
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<{ msg: string; ok: boolean } | null>(null);
   const [classifying, setClassifying] = useState<Set<string>>(new Set());
-  const [bulkClassifying, setBulkClassifying] = useState(false);
   const [filters, setFilters] = useState<InboxFilterState>({
     search: '',
     status: '',
@@ -124,6 +123,61 @@ export default function InboxView() {
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  useEffect(() => {
+    const processQueueInterval = setInterval(async () => {
+      try {
+        const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/process-classification-queue`;
+        await fetch(apiUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+            'Content-Type': 'application/json',
+          },
+        });
+      } catch (err) {
+        console.debug('[InboxView] Queue processing check (non-blocking)');
+      }
+    }, 30000);
+
+    return () => clearInterval(processQueueInterval);
+  }, []);
+
+  useEffect(() => {
+    const channel = supabase
+      .channel('ai_classifications_updates')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'ai_classifications'
+        },
+        async (payload) => {
+          console.log('[InboxView] New AI classification received:', payload);
+
+          const ticketId = payload.new.ticket_id;
+          const classification = {
+            ticket_id: ticketId,
+            category: payload.new.category,
+            subcategory: payload.new.subcategory,
+            priority: payload.new.priority,
+            confidence: payload.new.confidence
+          };
+
+          setAiClassifications(prev => {
+            const next = new Map(prev);
+            next.set(ticketId, classification as AiClassification);
+            return next;
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   useEffect(() => {
     const mailboxFromUrl = searchParams.get('mailbox');
@@ -287,51 +341,6 @@ export default function InboxView() {
     setSyncing(false);
   }
 
-  async function handleBulkClassify() {
-    const unclassifiedTickets = filtered.filter(t => !t.category_id && !aiClassifications.has(t.id));
-
-    if (unclassifiedTickets.length === 0) {
-      alert('Tous les tickets visibles ont déjà été classifiés par l\'IA');
-      return;
-    }
-
-    if (!confirm(`Lancer la classification IA pour ${unclassifiedTickets.length} ticket${unclassifiedTickets.length > 1 ? 's' : ''} non classifié${unclassifiedTickets.length > 1 ? 's' : ''} ?`)) {
-      return;
-    }
-
-    setBulkClassifying(true);
-    setSyncResult(null);
-
-    try {
-      const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/bulk-classify-tickets`;
-      const res = await fetch(apiUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          ticket_ids: unclassifiedTickets.map(t => t.id)
-        }),
-      });
-
-      const data = await res.json();
-
-      if (data.success) {
-        setSyncResult({
-          msg: `${data.classified || 0} ticket${data.classified !== 1 ? 's' : ''} classifié${data.classified !== 1 ? 's' : ''} par l'IA`,
-          ok: true
-        });
-        loadData();
-      } else {
-        setSyncResult({ msg: data.error || 'Erreur lors de la classification', ok: false });
-      }
-    } catch (err: any) {
-      setSyncResult({ msg: err.message || 'Erreur réseau', ok: false });
-    }
-
-    setBulkClassifying(false);
-  }
 
   function handlePageChange(page: number) {
     setCurrentPage(page);
@@ -464,19 +473,6 @@ export default function InboxView() {
           >
             <PenSquare className="w-3.5 h-3.5" />
             Nouveau message
-          </button>
-          <button
-            onClick={handleBulkClassify}
-            disabled={bulkClassifying}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-violet-600 hover:bg-violet-700 rounded-lg transition disabled:opacity-50"
-            title="Classifier les tickets avec l'IA"
-          >
-            {bulkClassifying ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <Sparkles className="w-3.5 h-3.5" />
-            )}
-            {bulkClassifying ? 'Classification...' : 'IA Classifier'}
           </button>
           <button
             onClick={handleSyncAll}

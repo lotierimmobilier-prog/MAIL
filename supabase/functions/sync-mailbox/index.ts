@@ -768,6 +768,21 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    // Déclencher le worker de classification en arrière-plan
+    const totalSynced = results.reduce((sum, r) => sum + (r.synced || 0), 0);
+    if (totalSynced > 0) {
+      const classifyUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/process-classification-queue`;
+      fetch(classifyUrl, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          "Content-Type": "application/json",
+        },
+      }).catch(err => {
+        console.warn("Classification worker call failed (non-blocking):", err.message);
+      });
+    }
+
     return new Response(JSON.stringify({
       success: true,
       results

@@ -1,10 +1,23 @@
-# Guide de Classification IA - Boîte de Réception
+# Guide de Classification IA - Automatique
 
-## Fonctionnalités Ajoutées
+## Fonctionnalités
 
-Le système de classification automatique par IA a été intégré directement dans la boîte de réception pour suggérer des catégories pour vos tickets.
+Le système de classification automatique par IA classifie **automatiquement** tous les emails entrants sans aucune action requise de votre part.
 
 ## Comment Ça Fonctionne
+
+### Classification Automatique Complète
+
+**Lorsqu'un email arrive :**
+
+1. **Email synchronisé** → L'email est récupéré de votre boîte mail
+2. **Trigger SQL** → Ajout automatique dans la queue de classification
+3. **Worker IA** → Traitement en arrière-plan (toutes les 30 secondes)
+4. **Classification** → Analyse du sujet, contenu et expéditeur
+5. **Suggestion affichée** → Badge visible instantanément dans l'interface
+6. **Mise à jour temps réel** → Via WebSocket, sans rafraîchir la page
+
+**✨ Tout est automatique, vous n'avez rien à faire !**
 
 ### 1. Suggestions de Catégories
 
@@ -37,28 +50,26 @@ Lorsqu'un ticket **n'a pas de catégorie assignée**, le système affiche automa
 3. Application de la priorité suggérée
 4. Rafraîchissement de l'affichage
 
-### 3. Classification en Masse
+### 3. Traitement en Arrière-Plan
 
-Un nouveau bouton **"IA Classifier"** (avec icône ✨ Sparkles) permet de :
+Le système utilise une **queue de traitement** pour classifier les emails :
 
-**Fonctionnement :**
-1. Identifie tous les tickets visibles sans catégorie
-2. Filtre ceux qui n'ont pas encore de classification IA
-3. Lance la classification en masse
-4. Affiche le nombre de tickets classifiés
+**Architecture :**
+- **Queue SQL** : `classification_queue` stocke les emails à traiter
+- **Worker** : Traite la queue toutes les 30 secondes
+- **Déclencheurs SQL** : Ajoutent automatiquement les nouveaux emails
+- **WebSocket** : Mise à jour en temps réel de l'interface
 
-**Utilisation :**
+**Flux de traitement :**
 ```
-1. Cliquez sur "IA Classifier"
-2. Confirmez le nombre de tickets à classifier
-3. Attendez la classification (quelques secondes)
-4. Consultez le résultat affiché
+Sync emails → Trigger SQL → Queue → Worker → Classification → WebSocket → Interface
 ```
 
-**Message de résultat :**
-```
-✅ 15 tickets classifiés par l'IA
-```
+**Avantages :**
+- Aucune action manuelle requise
+- Traitement asynchrone (n'impacte pas les performances)
+- Retry automatique en cas d'échec (3 tentatives)
+- Mise à jour en temps réel
 
 ## Interface Utilisateur
 
@@ -66,7 +77,7 @@ Un nouveau bouton **"IA Classifier"** (avec icône ✨ Sparkles) permet de :
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  Nouveau message  │  IA Classifier  │  Synchroniser  │ ...│
+│  Nouveau message  │  Synchroniser  │  Actualiser        │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -75,9 +86,10 @@ Un nouveau bouton **"IA Classifier"** (avec icône ✨ Sparkles) permet de :
 | Bouton | Icône | Couleur | Action |
 |--------|-------|---------|---------|
 | Nouveau message | ✏️ | Vert | Composer un email |
-| **IA Classifier** | ✨ | **Violet** | **Classifier en masse** |
-| Synchroniser | 📥 | Cyan | Synchroniser les emails |
+| Synchroniser | 📥 | Cyan | Synchroniser les emails (déclenche la classification) |
 | Actualiser | 🔄 | Gris | Recharger la liste |
+
+**Note :** Aucun bouton "IA Classifier" - tout est automatique !
 
 ### Liste des Tickets
 
@@ -93,33 +105,54 @@ Pour chaque ticket **sans catégorie**, vous verrez :
 
 **Cliquez sur le badge 🤖** pour appliquer la suggestion instantanément.
 
-## Workflow Recommandé
+## Workflow Automatique
 
-### Scénario 1 : Nouveau Ticket Non Classifié
+### Scénario 1 : Nouveaux Emails Entrants
 
-1. **Synchronisez vos emails** → Bouton "Synchroniser"
-2. **Les nouveaux tickets apparaissent** sans catégorie
-3. **Lancez la classification IA** → Bouton "IA Classifier"
-4. **Consultez les suggestions** (badges violets avec 🤖)
-5. **Cliquez sur une suggestion** pour l'appliquer
-6. **Ou modifiez manuellement** si nécessaire
+**Vous :**
+1. Cliquez sur **"Synchroniser"** (ou laissez la sync automatique)
 
-### Scénario 2 : Traitement en Lot
+**Le système (automatiquement) :**
+1. Récupère les nouveaux emails
+2. Les ajoute dans la queue de classification
+3. Lance le worker en arrière-plan
+4. Classifie chaque email (sujet + contenu + expéditeur)
+5. Affiche les suggestions en temps réel
 
-1. **Filtrez vos tickets** (par boîte mail, statut, etc.)
-2. **Cliquez sur "IA Classifier"**
-3. **Confirmez** le nombre de tickets à classifier
-4. **Attendez** le résultat (quelques secondes)
-5. **Vérifiez** les catégories suggérées
-6. **Appliquez** les suggestions pertinentes
+**Vous :**
+1. Voyez les badges 🤖 apparaître automatiquement
+2. Cliquez pour appliquer la suggestion si elle vous convient
+3. Ou ignorez-la et classifiez manuellement
 
-### Scénario 3 : Validation Manuelle
+**⏱️ Temps total : ~30 secondes après la sync**
 
-1. **Un ticket a une suggestion** (badge 🤖)
-2. **Survolez le badge** pour voir la confiance
-3. **Si confiance ≥ 80%** → Cliquez pour appliquer
-4. **Si confiance < 80%** → Ouvrez le ticket pour vérifier
-5. **Appliquez ou modifiez** selon votre jugement
+### Scénario 2 : Pendant que vous travaillez
+
+**Le système travaille en arrière-plan :**
+- Vérifie la queue toutes les 30 secondes
+- Traite automatiquement les emails en attente
+- Met à jour l'interface en temps réel via WebSocket
+- Aucune action manuelle requise
+
+**Vous :**
+- Continuez votre travail normalement
+- Les suggestions apparaissent automatiquement
+- Appliquez-les en un clic quand vous les voyez
+
+### Scénario 3 : Validation des Suggestions
+
+**Badge 🤖 avec confiance élevée (≥ 80%) :**
+1. Cliquez directement pour appliquer
+2. La catégorie et priorité sont assignées automatiquement
+
+**Badge 🤖 avec confiance moyenne (60-79%) :**
+1. Survolez pour voir les détails
+2. Vérifiez la pertinence
+3. Cliquez pour appliquer ou ignorez
+
+**Pas de badge :**
+- Confiance < 60% ou aucune catégorie pertinente
+- Classifiez manuellement si nécessaire
 
 ## Critères de Classification
 
@@ -433,21 +466,47 @@ Gain : 115 sec × nombre de tickets
 
 ### Points Clés
 
-✅ **Suggestions automatiques** pour les tickets sans catégorie
+✅ **Classification 100% automatique** - aucune action requise
+✅ **Traitement en arrière-plan** - toutes les 30 secondes
+✅ **Mise à jour temps réel** - via WebSocket
+✅ **Suggestions intelligentes** - analysant sujet, contenu et expéditeur
 ✅ **Application en un clic** des suggestions
-✅ **Classification en masse** avec le bouton "IA Classifier"
 ✅ **Niveau de confiance** affiché (seuil 60%)
 ✅ **Gain de temps** considérable (95%)
 ✅ **Cohérence** et standardisation
-✅ **Facile à utiliser** - interface intuitive
+✅ **Retry automatique** en cas d'échec (3 tentatives)
+✅ **Zéro configuration** - tout fonctionne dès la sync
 
 ### Commencer
 
 1. **Configurez vos catégories** avec des mots-clés pertinents
-2. **Synchronisez vos emails**
-3. **Cliquez sur "IA Classifier"**
-4. **Vérifiez les suggestions** (badges 🤖)
-5. **Appliquez les suggestions** en un clic
-6. **Ajustez si nécessaire**
+2. **Synchronisez vos emails** (bouton "Synchroniser")
+3. **Le système classifie automatiquement** en arrière-plan
+4. **Attendez ~30 secondes** pour voir les suggestions
+5. **Les badges 🤖 apparaissent** automatiquement
+6. **Cliquez pour appliquer** ou ignorez
 
-**Profitez de la puissance de l'IA pour gérer votre boîte de réception plus efficacement !**
+**C'est tout ! Le système travaille pour vous automatiquement.**
+
+### Architecture Technique
+
+**Composants :**
+- **Trigger SQL** : `enqueue_new_ticket_for_classification()` et `enqueue_email_for_classification()`
+- **Table Queue** : `classification_queue` avec statuts (pending, processing, completed, failed)
+- **Worker** : `process-classification-queue` (appelé toutes les 30s)
+- **Classificateur** : `classify-email` (utilise GPT-4 ou fallback mots-clés)
+- **WebSocket** : Mise à jour temps réel via Supabase Realtime
+
+**Sécurité :**
+- Row Level Security (RLS) sur toutes les tables
+- Service role uniquement pour les opérations sensibles
+- Retry automatique (max 3 tentatives)
+- Gestion des erreurs robuste
+
+**Performance :**
+- Traitement par batch (10 emails max par cycle)
+- Non-bloquant (arrière-plan)
+- Index optimisés sur la queue
+- Cache des classifications
+
+**Profitez de la puissance de l'IA qui travaille automatiquement pour vous !**
