@@ -3,6 +3,7 @@ import { Plus, Edit3, Trash2, ToggleLeft, ToggleRight, Server, RefreshCw, Loader
 import Modal from '../ui/Modal';
 import { supabase } from '../../lib/supabase';
 import type { Mailbox } from '../../lib/types';
+import { callEdgeFunction } from '../../lib/edgeFunctionClient';
 
 let isSyncing = false;
 let syncStartTime = 0;
@@ -206,43 +207,54 @@ export default function MailboxManager() {
     setTesting(mb.id);
     setTestResult(null);
 
-    try {
-      const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/test-imap-connection`;
+    console.log('[MailboxManager] Testing connection for mailbox:', mb.id);
 
-      const res = await fetch(apiUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          mailbox_id: mb.id,
-          imap_host: mb.imap_host,
-          imap_port: mb.imap_port,
-          username: mb.username,
-        }),
-      });
-
-      const data = await res.json();
-
-      if (data.success) {
-        setTestResult({
-          id: mb.id,
-          msg: `✓ ${data.message} - ${data.details.email_count} emails trouvés (${data.details.timings.total_ms}ms)`,
-          ok: true,
-          details: data.details
-        });
-      } else {
-        setTestResult({
-          id: mb.id,
-          msg: `✗ ${data.error}`,
-          ok: false
-        });
+    const { data, error } = await callEdgeFunction<{
+      success: boolean;
+      message?: string;
+      error?: string;
+      details?: {
+        server: string;
+        username: string;
+        email_count: number;
+        timings: {
+          connection_ms: number;
+          login_ms: number;
+          select_ms: number;
+          total_ms: number;
+        }
       }
-    } catch (err: any) {
+    }>({
+      functionName: 'test-imap-connection',
+      body: {
+        mailbox_id: mb.id,
+        imap_host: mb.imap_host,
+        imap_port: mb.imap_port,
+        username: mb.username,
+      },
+      timeout: 15000
+    });
+
+    if (error) {
+      console.error('[MailboxManager] Test connection failed:', error);
       setTestResult({
         id: mb.id,
-        msg: `✗ Erreur: ${err.message || 'Erreur réseau'}`,
+        msg: `✗ ${error}`,
+        ok: false
+      });
+    } else if (data?.success) {
+      console.log('[MailboxManager] Test connection successful:', data.details);
+      setTestResult({
+        id: mb.id,
+        msg: `✓ ${data.message} - ${data.details?.email_count || 0} emails trouvés (${data.details?.timings.total_ms || 0}ms)`,
+        ok: true,
+        details: data.details
+      });
+    } else {
+      console.warn('[MailboxManager] Test connection returned error:', data?.error);
+      setTestResult({
+        id: mb.id,
+        msg: `✗ ${data?.error || 'Erreur inconnue'}`,
         ok: false
       });
     }
