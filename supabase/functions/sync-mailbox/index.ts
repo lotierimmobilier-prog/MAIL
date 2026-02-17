@@ -115,7 +115,7 @@ async function decryptCredential(encryptedData: string, mailboxId: string): Prom
   return data.result;
 }
 
-async function syncOvhMailbox(mb: any, sb: any, syncState: any, maxEmailsPerBatch: number, isTimeout: () => boolean, startUID: number) {
+async function syncOvhMailbox(mb: any, sb: any, syncState: any, maxEmailsPerBatch: number, isTimeout: () => boolean) {
   let consumerKey = mb.ovh_consumer_key;
 
   if (mb.ovh_consumer_key_secure) {
@@ -133,9 +133,20 @@ async function syncOvhMailbox(mb: any, sb: any, syncState: any, maxEmailsPerBatc
       consumerKey
     );
 
-    const sortedIds = (Array.isArray(emailIds) ? emailIds : [])
-      .filter((id: number) => id >= startUID)
-      .sort((a: number, b: number) => a - b)
+    const { data: existingEmails } = await sb
+      .from("emails")
+      .select("message_id")
+      .eq("mailbox_id", mb.id);
+
+    const existingSet = new Set(
+      (existingEmails || []).map((e: any) => e.message_id)
+    );
+
+    const unprocessedIds = (Array.isArray(emailIds) ? emailIds : [])
+      .filter((id: number) => !existingSet.has(`ovh-${id}-${mb.id}`));
+
+    const sortedIds = unprocessedIds
+      .sort((a: number, b: number) => b - a)
       .slice(0, maxEmailsPerBatch);
 
     let synced = 0;
@@ -233,14 +244,12 @@ async function syncOvhMailbox(mb: any, sb: any, syncState: any, maxEmailsPerBatc
       }
     }
 
-    const nextUID = sortedIds.length > 0 ? sortedIds[sortedIds.length - 1] + 1 : startUID;
-    const hasMore = sortedIds.length >= maxEmailsPerBatch;
+    const hasMore = unprocessedIds.length > maxEmailsPerBatch;
 
     await sb
       .from("sync_state")
       .update({
         last_synced_at: new Date().toISOString(),
-        last_uid: nextUID,
         total_emails_synced: (syncState?.total_emails_synced || 0) + synced,
         is_syncing: false,
         last_error: null,
@@ -248,12 +257,12 @@ async function syncOvhMailbox(mb: any, sb: any, syncState: any, maxEmailsPerBatc
       })
       .eq("mailbox_id", mb.id);
 
-    console.log(`[${mb.name}] OVH sync: ${synced} synced, nextUID: ${nextUID}, hasMore: ${hasMore}`);
+    console.log(`[${mb.name}] OVH sync: ${synced}/${sortedIds.length} synchronisé (${unprocessedIds.length - sortedIds.length} restants)`);
     return {
       mailbox: mb.name,
       status: "ok",
       synced,
-      next_uid: nextUID,
+      remaining: unprocessedIds.length - sortedIds.length,
       has_more: hasMore
     };
   } catch (err: any) {
@@ -443,8 +452,8 @@ class Imap {
     return m ? parseInt(m[1]) : 0;
   }
 
-  async searchUIDRange(startUID: number, endUID: number): Promise<number[]> {
-    const r = await this.cmd(`UID SEARCH UID ${startUID}:${endUID}`);
+  async searchAllUIDs(): Promise<number[]> {
+    const r = await this.cmd(`UID SEARCH ALL`);
     const m = r.match(/\*\s+SEARCH\s+([\d\s]+)/);
     if (!m || !m[1].trim()) return [];
     return m[1].trim().split(/\s+/).filter(Boolean).map(Number);
@@ -484,10 +493,9 @@ Deno.serve(async (req: Request) => {
 
     const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     const body = await req.json().catch(() => ({}));
-    const maxEmailsPerBatch = 100;
-    const startUID = body.startUID || 1;
+    const maxEmailsPerBatch = body.batch_size || 10;
 
-    console.log("SYNC - startUID:", startUID, "| Batch size:", maxEmailsPerBatch, "| Timeout:", MAX_EXECUTION_TIME, "ms");
+    console.log("SYNC - Batch size:", maxEmailsPerBatch, "| Timeout:", MAX_EXECUTION_TIME, "ms (du plus récent au plus vieux)");
 
     let q = sb.from("mailboxes").select("*").eq("is_active", true);
     if (body.mailbox_id) q = q.eq("id", body.mailbox_id);
@@ -549,7 +557,7 @@ Deno.serve(async (req: Request) => {
         .eq("mailbox_id", mb.id);
 
       if (mb.provider_type === "ovh") {
-        const result = await syncOvhMailbox(mb, sb, syncState, maxEmailsPerBatch, isTimeout, startUID);
+        const result = await syncOvhMailbox(mb, sb, syncState, maxEmailsPerBatch, isTimeout);
         results.push(result);
         continue;
       }
@@ -585,10 +593,26 @@ Deno.serve(async (req: Request) => {
         await imap.login(mb.username, password);
         await imap.select("INBOX");
 
-        const endUID = startUID + maxEmailsPerBatch - 1;
-        const uids = await imap.searchUIDRange(startUID, endUID);
+        const allUIDs = await imap.searchAllUIDs();
 
-        console.log(`[${mb.name}] Found ${uids.length} UIDs in range ${startUID}:${endUID}`);
+        const { data: existingEmails } = await sb
+          .from("emails")
+          .select("message_id")
+          .eq("mailbox_id", mb.id);
+
+        const existingSet = new Set(
+          (existingEmails || []).map(e => e.message_id)
+        );
+
+        const unprocessedUIDs = allUIDs.filter(uid => {
+          return !existingSet.has(`uid-${uid}-${mb.id}`);
+        });
+
+        const uids = unprocessedUIDs
+          .sort((a, b) => b - a)
+          .slice(0, maxEmailsPerBatch);
+
+        console.log(`[${mb.name}] Total UIDs: ${allUIDs.length}, Non-synchronisés: ${unprocessedUIDs.length}, À traiter: ${uids.length} (du plus récent au plus vieux)`);
 
         let synced = 0;
 
@@ -706,14 +730,12 @@ Deno.serve(async (req: Request) => {
 
         imap.close();
 
-        const nextUID = uids.length > 0 ? Math.max(...uids) + 1 : startUID;
-        const hasMore = uids.length >= maxEmailsPerBatch;
+        const hasMore = unprocessedUIDs.length > maxEmailsPerBatch;
 
         await sb
           .from("sync_state")
           .update({
             last_synced_at: new Date().toISOString(),
-            last_uid: nextUID,
             total_emails_synced: (syncState?.total_emails_synced || 0) + synced,
             is_syncing: false,
             last_error: null,
@@ -721,12 +743,12 @@ Deno.serve(async (req: Request) => {
           })
           .eq("mailbox_id", mb.id);
 
-        console.log(`[${mb.name}] Synced ${synced} emails, nextUID: ${nextUID}, hasMore: ${hasMore}`);
+        console.log(`[${mb.name}] Synchronisé ${synced}/${uids.length} emails (${unprocessedUIDs.length - uids.length} restants)`);
         results.push({
           mailbox: mb.name,
           status: "ok",
           synced,
-          next_uid: nextUID,
+          remaining: unprocessedUIDs.length - uids.length,
           has_more: hasMore
         });
       } catch (err: any) {
