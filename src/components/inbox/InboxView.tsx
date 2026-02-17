@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { format, isToday, isPast, isFuture } from 'date-fns';
 import { fr } from 'date-fns/locale';
-import { Inbox, Mail, RefreshCw, Trash2, CheckSquare, Square, MinusSquare, Download, Loader2, PenSquare, Paperclip, Calendar } from 'lucide-react';
+import { Inbox, Mail, RefreshCw, Trash2, CheckSquare, Square, MinusSquare, Download, Loader2, PenSquare, Paperclip, Calendar, Sparkles } from 'lucide-react';
 import Header from '../layout/Header';
 import InboxFilters, { type InboxFilterState } from './InboxFilters';
 import Pagination from './Pagination';
@@ -17,6 +17,14 @@ import type { Ticket, Category, Mailbox } from '../../lib/types';
 
 const DEFAULT_PAGE_SIZE = 25;
 
+interface AiClassification {
+  ticket_id: string;
+  category: string;
+  subcategory: string;
+  priority: string;
+  confidence: number;
+}
+
 export default function InboxView() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -24,6 +32,7 @@ export default function InboxView() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [mailboxes, setMailboxes] = useState<Mailbox[]>([]);
   const [ticketAttachments, setTicketAttachments] = useState<Set<string>>(new Set());
+  const [aiClassifications, setAiClassifications] = useState<Map<string, AiClassification>>(new Map());
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -33,6 +42,8 @@ export default function InboxView() {
   const [showNewEmailModal, setShowNewEmailModal] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<{ msg: string; ok: boolean } | null>(null);
+  const [classifying, setClassifying] = useState<Set<string>>(new Set());
+  const [bulkClassifying, setBulkClassifying] = useState(false);
   const [filters, setFilters] = useState<InboxFilterState>({
     search: '',
     status: '',
@@ -69,12 +80,28 @@ export default function InboxView() {
       setTickets(ticketRes.data);
 
       const ticketIds = ticketRes.data.map(t => t.id);
-      const { data: allAttachments } = await supabase
-        .from('attachments')
-        .select('email_id');
 
-      if (allAttachments && allAttachments.length > 0) {
-        const emailIds = allAttachments.map(a => a.email_id);
+      const [attachmentsRes, classificationsRes] = await Promise.all([
+        supabase.from('attachments').select('email_id'),
+        supabase
+          .from('ai_classifications')
+          .select('ticket_id, category, subcategory, priority, confidence')
+          .in('ticket_id', ticketIds)
+          .order('created_at', { ascending: false })
+      ]);
+
+      if (classificationsRes.data) {
+        const classMap = new Map<string, AiClassification>();
+        classificationsRes.data.forEach(cls => {
+          if (!classMap.has(cls.ticket_id)) {
+            classMap.set(cls.ticket_id, cls as AiClassification);
+          }
+        });
+        setAiClassifications(classMap);
+      }
+
+      if (attachmentsRes.data && attachmentsRes.data.length > 0) {
+        const emailIds = attachmentsRes.data.map(a => a.email_id);
         const { data: emailsWithAttachments } = await supabase
           .from('emails')
           .select('ticket_id')
@@ -260,6 +287,52 @@ export default function InboxView() {
     setSyncing(false);
   }
 
+  async function handleBulkClassify() {
+    const unclassifiedTickets = filtered.filter(t => !t.category_id && !aiClassifications.has(t.id));
+
+    if (unclassifiedTickets.length === 0) {
+      alert('Tous les tickets visibles ont déjà été classifiés par l\'IA');
+      return;
+    }
+
+    if (!confirm(`Lancer la classification IA pour ${unclassifiedTickets.length} ticket${unclassifiedTickets.length > 1 ? 's' : ''} non classifié${unclassifiedTickets.length > 1 ? 's' : ''} ?`)) {
+      return;
+    }
+
+    setBulkClassifying(true);
+    setSyncResult(null);
+
+    try {
+      const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/bulk-classify-tickets`;
+      const res = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ticket_ids: unclassifiedTickets.map(t => t.id)
+        }),
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        setSyncResult({
+          msg: `${data.classified || 0} ticket${data.classified !== 1 ? 's' : ''} classifié${data.classified !== 1 ? 's' : ''} par l'IA`,
+          ok: true
+        });
+        loadData();
+      } else {
+        setSyncResult({ msg: data.error || 'Erreur lors de la classification', ok: false });
+      }
+    } catch (err: any) {
+      setSyncResult({ msg: err.message || 'Erreur réseau', ok: false });
+    }
+
+    setBulkClassifying(false);
+  }
+
   function handlePageChange(page: number) {
     setCurrentPage(page);
     setSelected(new Set());
@@ -281,6 +354,45 @@ export default function InboxView() {
     });
     if (ticket) {
       navigate(`/inbox/${ticket.id}`);
+    }
+  }
+
+  async function handleApplyAiSuggestion(ticketId: string, e: React.MouseEvent) {
+    e.stopPropagation();
+
+    const aiClass = aiClassifications.get(ticketId);
+    if (!aiClass) return;
+
+    const matchedCategory = categories.find(c =>
+      c.name.toLowerCase() === aiClass.category.toLowerCase()
+    );
+
+    if (!matchedCategory) {
+      alert('Catégorie suggérée introuvable dans votre système');
+      return;
+    }
+
+    setClassifying(prev => new Set(prev).add(ticketId));
+
+    const { error } = await supabase
+      .from('tickets')
+      .update({
+        category_id: matchedCategory.id,
+        priority: aiClass.priority
+      })
+      .eq('id', ticketId);
+
+    setClassifying(prev => {
+      const next = new Set(prev);
+      next.delete(ticketId);
+      return next;
+    });
+
+    if (error) {
+      console.error('Error applying AI suggestion:', error);
+      alert('Erreur lors de l\'application de la suggestion');
+    } else {
+      loadData();
     }
   }
 
@@ -352,6 +464,19 @@ export default function InboxView() {
           >
             <PenSquare className="w-3.5 h-3.5" />
             Nouveau message
+          </button>
+          <button
+            onClick={handleBulkClassify}
+            disabled={bulkClassifying}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-violet-600 hover:bg-violet-700 rounded-lg transition disabled:opacity-50"
+            title="Classifier les tickets avec l'IA"
+          >
+            {bulkClassifying ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Sparkles className="w-3.5 h-3.5" />
+            )}
+            {bulkClassifying ? 'Classification...' : 'IA Classifier'}
           </button>
           <button
             onClick={handleSyncAll}
@@ -467,6 +592,33 @@ export default function InboxView() {
 
                   <div className="flex items-center gap-2 shrink-0">
                     {category && <Badge label={category.name} color={category.color} />}
+                    {!category && (() => {
+                      const aiClass = aiClassifications.get(ticket.id);
+                      if (aiClass && aiClass.confidence >= 0.6) {
+                        const isApplying = classifying.has(ticket.id);
+                        return (
+                          <button
+                            onClick={e => handleApplyAiSuggestion(ticket.id, e)}
+                            disabled={isApplying}
+                            className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition hover:opacity-80 disabled:opacity-50"
+                            style={{
+                              backgroundColor: '#A78BFA20',
+                              color: '#7C3AED',
+                              border: '1px dashed #A78BFA'
+                            }}
+                            title={`IA suggère : ${aiClass.category} (${Math.round(aiClass.confidence * 100)}% confiance)\nCliquez pour appliquer`}
+                          >
+                            {isApplying ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <span className="text-[10px]">🤖</span>
+                            )}
+                            <span>{aiClass.category}</span>
+                          </button>
+                        );
+                      }
+                      return null;
+                    })()}
                     {ticket.priority && <Badge label={priorityCfg.label} color={priorityCfg.color} />}
                     {ticket.status && <Badge label={statusCfg.label} color={statusCfg.color} />}
                     {ticket.due_date && (() => {
