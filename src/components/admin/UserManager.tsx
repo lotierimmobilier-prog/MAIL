@@ -5,6 +5,7 @@ import Badge from '../ui/Badge';
 import Modal from '../ui/Modal';
 import { supabase } from '../../lib/supabase';
 import type { Profile, UserRole, Mailbox } from '../../lib/types';
+import { callEdgeFunction } from '../../lib/edgeFunctionClient';
 
 const ROLE_COLORS: Record<string, string> = {
   admin: '#EF4444',
@@ -88,43 +89,51 @@ export default function UserManager() {
 
     setCreating(true);
     try {
-      const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-user`;
       const { data: { session } } = await supabase.auth.getSession();
 
       if (!session) {
         alert('Session expirée. Veuillez vous reconnecter.');
+        setCreating(false);
         return;
       }
 
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+      console.log('[UserManager] Creating user:', { email, fullName, role });
+
+      const { data, error } = await callEdgeFunction<{
+        success: boolean;
+        user?: {
+          id: string;
+          email: string;
+          fullName: string;
+          role: string;
+        };
+        error?: string;
+      }>({
+        functionName: 'create-user',
+        body: {
           email,
           password,
           fullName,
           role,
           avatarColor,
           mailboxPermissions
-        })
+        },
+        timeout: 15000
       });
 
-      const result = await response.json();
-
-      if (!response.ok) {
-        alert(result.error || 'Erreur lors de la création de l\'utilisateur');
+      if (error || !data?.success) {
+        console.error('[UserManager] Create user failed:', error || data?.error);
+        alert(data?.error || error || 'Erreur lors de la création de l\'utilisateur');
         return;
       }
 
+      console.log('[UserManager] User created successfully:', data.user);
       alert('Utilisateur créé avec succès');
       setCreateModalOpen(false);
       load();
     } catch (error) {
+      console.error('[UserManager] Unexpected error:', error);
       alert('Erreur lors de la création de l\'utilisateur');
-      console.error(error);
     } finally {
       setCreating(false);
     }
@@ -146,7 +155,6 @@ export default function UserManager() {
     }
 
     try {
-      const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/delete-user`;
       const { data: { session } } = await supabase.auth.getSession();
 
       if (!session) {
@@ -154,26 +162,28 @@ export default function UserManager() {
         return;
       }
 
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ userId: user.id })
+      console.log('[UserManager] Deleting user:', user.id);
+
+      const { data, error } = await callEdgeFunction<{
+        success: boolean;
+        error?: string;
+      }>({
+        functionName: 'delete-user',
+        body: { userId: user.id },
+        timeout: 15000
       });
 
-      const result = await response.json();
-
-      if (!response.ok) {
-        alert(result.error || 'Erreur lors de la suppression de l\'utilisateur');
+      if (error || !data?.success) {
+        console.error('[UserManager] Delete user failed:', error || data?.error);
+        alert(data?.error || error || 'Erreur lors de la suppression de l\'utilisateur');
         return;
       }
 
+      console.log('[UserManager] User deleted successfully');
       alert('Utilisateur supprimé avec succès');
       load();
     } catch (error) {
-      console.error('Error deleting user:', error);
+      console.error('[UserManager] Unexpected error:', error);
       alert('Erreur lors de la suppression de l\'utilisateur');
     }
   }
