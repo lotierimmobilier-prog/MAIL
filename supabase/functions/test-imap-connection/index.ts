@@ -114,6 +114,8 @@ Deno.serve(async (req: Request) => {
     const body = await req.json();
     const { mailbox_id, imap_host, imap_port, username, password } = body;
 
+    console.log('[test-imap-connection] Testing connection for:', { mailbox_id, imap_host, imap_port, username });
+
     if (!imap_host || !imap_port || !username) {
       return new Response(
         JSON.stringify({
@@ -135,20 +137,51 @@ Deno.serve(async (req: Request) => {
     let finalPassword = password;
 
     if (mailbox_id && !password) {
-      const { data: mailbox } = await sb
+      console.log('[test-imap-connection] Fetching encrypted password from database');
+      const { data: mailbox, error: dbError } = await sb
         .from("mailboxes")
         .select("encrypted_password, encrypted_password_secure")
         .eq("id", mailbox_id)
-        .single();
+        .maybeSingle();
+
+      if (dbError) {
+        console.error('[test-imap-connection] Database error:', dbError);
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: `Erreur base de données: ${dbError.message}`
+          }),
+          {
+            status: 500,
+            headers: { ...corsHeaders, "Content-Type": "application/json" }
+          }
+        );
+      }
 
       if (mailbox?.encrypted_password_secure) {
-        finalPassword = await decryptCredential(mailbox.encrypted_password_secure, mailbox_id);
+        console.log('[test-imap-connection] Decrypting password');
+        try {
+          finalPassword = await decryptCredential(mailbox.encrypted_password_secure, mailbox_id);
+        } catch (decryptError: any) {
+          console.error('[test-imap-connection] Decryption error:', decryptError);
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: `Erreur de déchiffrement: ${decryptError.message}`
+            }),
+            {
+              status: 500,
+              headers: { ...corsHeaders, "Content-Type": "application/json" }
+            }
+          );
+        }
       } else if (mailbox?.encrypted_password) {
         finalPassword = mailbox.encrypted_password;
       }
     }
 
     if (!finalPassword || finalPassword === "encrypted_placeholder") {
+      console.error('[test-imap-connection] No valid password found');
       return new Response(
         JSON.stringify({
           success: false,
