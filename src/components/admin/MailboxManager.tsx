@@ -505,7 +505,7 @@ export default function MailboxManager() {
                 </p>
               )}
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-2">
               {(mb as any).provider_type !== 'ovh' && (
                 <button
                   onClick={() => handleTestConnection(mb)}
@@ -523,25 +523,37 @@ export default function MailboxManager() {
               <button
                 onClick={() => handleSync(mb, "new")}
                 disabled={syncing !== null}
-                className="p-2 rounded-lg text-slate-400 hover:text-cyan-600 hover:bg-cyan-50 transition disabled:opacity-50"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-50 text-cyan-700 hover:bg-cyan-100 transition disabled:opacity-50 text-xs font-medium"
                 title="Synchroniser les nouveaux emails"
               >
                 {syncing === mb.id ? (
-                  <Loader2 className="w-4 h-4 animate-spin text-cyan-500" />
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Sync...</span>
+                  </>
                 ) : (
-                  <RefreshCw className="w-4 h-4" />
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Nouveaux</span>
+                  </>
                 )}
               </button>
               <button
                 onClick={() => handleSyncAll(mb)}
                 disabled={syncing !== null}
-                className="p-2 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition disabled:opacity-50"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition disabled:opacity-50 text-xs font-medium"
                 title="Synchroniser TOUS les emails (historique complet)"
               >
                 {syncing === mb.id ? (
-                  <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Sync...</span>
+                  </>
                 ) : (
-                  <Download className="w-4 h-4" />
+                  <>
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Tout synchroniser</span>
+                  </>
                 )}
               </button>
               <button onClick={() => toggleActive(mb)} className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition">
