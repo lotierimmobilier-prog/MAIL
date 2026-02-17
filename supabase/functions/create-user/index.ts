@@ -50,24 +50,17 @@ Deno.serve(async (req: Request) => {
     }
 
     const token = authHeader.replace("Bearer ", "");
-    const supabaseClient = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_ANON_KEY") ?? "",
-      {
-        auth: { persistSession: false },
-        global: { headers: { Authorization: authHeader } }
-      }
-    );
 
-    const { data: { user: currentUser } } = await supabaseClient.auth.getUser(token);
-    if (!currentUser) {
+    const { data: { user: currentUser }, error: authError } = await supabaseAdmin.auth.getUser(token);
+    if (authError || !currentUser) {
+      console.error("Auth error:", authError);
       return new Response(
         JSON.stringify({ error: "Non autorisé" }),
         { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    const { data: profile } = await supabaseClient
+    const { data: profile } = await supabaseAdmin
       .from("profiles")
       .select("role")
       .eq("id", currentUser.id)
