@@ -6,8 +6,10 @@ import type { Mailbox } from '../../lib/types';
 
 let isSyncing = false;
 let syncStartTime = 0;
+let lastProgressTime = 0;
 let currentSyncMailboxId: string | null = null;
-const MAX_SYNC_DURATION = 15000;
+const MAX_SYNC_DURATION = 60000;
+const MAX_NO_PROGRESS_DURATION = 30000;
 
 export default function MailboxManager() {
   const [mailboxes, setMailboxes] = useState<Mailbox[]>([]);
@@ -33,16 +35,33 @@ export default function MailboxManager() {
     const checkInterval = setInterval(() => {
       if (isSyncing) {
         const now = Date.now();
-        if (now - syncStartTime > MAX_SYNC_DURATION) {
-          console.warn('Auto-resetting stuck sync after', MAX_SYNC_DURATION, 'ms');
+        const noProgressDuration = now - lastProgressTime;
+        const totalDuration = now - syncStartTime;
+
+        if (noProgressDuration > MAX_NO_PROGRESS_DURATION) {
+          console.warn('Auto-resetting stuck sync - no progress for', MAX_NO_PROGRESS_DURATION, 'ms');
           isSyncing = false;
           syncStartTime = 0;
+          lastProgressTime = 0;
           currentSyncMailboxId = null;
           setSyncing(null);
           setSyncStuck(true);
           setSyncResult({
             id: currentSyncMailboxId || '',
-            msg: 'Sync bloquée - réinitialisée automatiquement',
+            msg: 'Sync bloquée (aucun progrès) - réinitialisée automatiquement',
+            ok: false
+          });
+        } else if (totalDuration > MAX_SYNC_DURATION) {
+          console.warn('Auto-resetting long-running sync after', MAX_SYNC_DURATION, 'ms');
+          isSyncing = false;
+          syncStartTime = 0;
+          lastProgressTime = 0;
+          currentSyncMailboxId = null;
+          setSyncing(null);
+          setSyncStuck(true);
+          setSyncResult({
+            id: currentSyncMailboxId || '',
+            msg: 'Sync trop longue - réinitialisée automatiquement',
             ok: false
           });
         }
@@ -235,6 +254,7 @@ export default function MailboxManager() {
     console.warn('Manual sync reset triggered');
     isSyncing = false;
     syncStartTime = 0;
+    lastProgressTime = 0;
     currentSyncMailboxId = null;
     setSyncing(null);
     setSyncStuck(false);
@@ -336,6 +356,7 @@ export default function MailboxManager() {
         totalSynced += result.synced;
         hasMore = result.hasMore;
         currentUID = result.nextUID;
+        lastProgressTime = Date.now();
 
         const progressMsg = `Batch ${batchCount}: ${result.synced} email${result.synced !== 1 ? 's' : ''} synchronisé${result.synced !== 1 ? 's' : ''} (Total: ${totalSynced})${hasMore ? ' - En cours...' : ' - Terminé'}`;
 
@@ -376,17 +397,22 @@ export default function MailboxManager() {
   async function handleSync(mb: Mailbox, mode: string = "new") {
     if (isSyncing) {
       const now = Date.now();
+      const currentMailbox = mailboxes.find(m => m.id === currentSyncMailboxId);
+      const currentMailboxName = currentMailbox ? currentMailbox.name : 'inconnue';
+      const noProgressDuration = now - lastProgressTime;
 
-      if (now - syncStartTime > MAX_SYNC_DURATION) {
-        console.warn('Sync was stuck, resetting state automatically');
+      if (noProgressDuration > MAX_NO_PROGRESS_DURATION) {
+        console.warn('Sync was stuck (no progress), resetting state automatically');
         isSyncing = false;
         syncStartTime = 0;
+        lastProgressTime = 0;
         currentSyncMailboxId = null;
       } else {
         console.log('Already syncing, skipping. Current sync mailbox:', currentSyncMailboxId);
+        const elapsedSeconds = Math.floor((now - syncStartTime) / 1000);
         setSyncResult({
           id: mb.id,
-          msg: 'Une synchronisation est déjà en cours',
+          msg: `Une synchronisation est déjà en cours pour "${currentMailboxName}" (${elapsedSeconds}s). Veuillez patienter ou cliquez sur "Arrêter".`,
           ok: false
         });
         return;
@@ -395,6 +421,7 @@ export default function MailboxManager() {
 
     isSyncing = true;
     syncStartTime = Date.now();
+    lastProgressTime = Date.now();
     currentSyncMailboxId = mb.id;
     setSyncing(mb.id);
     setSyncResult(null);
@@ -412,6 +439,7 @@ export default function MailboxManager() {
     } finally {
       isSyncing = false;
       syncStartTime = 0;
+      lastProgressTime = 0;
       currentSyncMailboxId = null;
       setSyncing(null);
       console.log(`SYNC ${modeLabel} END for mailbox:`, mb.id, 'at', new Date().toISOString());
@@ -454,7 +482,7 @@ export default function MailboxManager() {
           <div className="flex-1">
             <p className="text-sm font-medium text-amber-900">Synchronisation bloquée détectée</p>
             <p className="text-xs text-amber-700 mt-0.5">
-              La synchronisation est restée bloquée pendant plus de {MAX_SYNC_DURATION / 1000} secondes. Elle a été réinitialisée automatiquement.
+              La synchronisation a été réinitialisée automatiquement car elle ne progressait plus.
             </p>
           </div>
         </div>
@@ -464,11 +492,19 @@ export default function MailboxManager() {
         <div className="mb-4 p-3 bg-cyan-50 border border-cyan-200 rounded-lg flex items-start gap-2">
           <Loader2 className="w-5 h-5 text-cyan-600 flex-shrink-0 mt-0.5 animate-spin" />
           <div className="flex-1">
-            <p className="text-sm font-medium text-cyan-900">Synchronisation en cours</p>
+            <p className="text-sm font-medium text-cyan-900">
+              Synchronisation en cours: {mailboxes.find(m => m.id === syncing)?.name || 'Boîte mail'}
+            </p>
             <p className="text-xs text-cyan-700 mt-0.5">
-              Boîte mail en cours de synchronisation. Durée maximale: {MAX_SYNC_DURATION / 1000}s
+              Cette opération peut prendre plusieurs minutes pour les boîtes avec beaucoup d'emails. Veuillez patienter...
             </p>
           </div>
+          <button
+            onClick={forceResetSync}
+            className="text-xs px-2 py-1 bg-cyan-100 hover:bg-cyan-200 text-cyan-800 rounded transition"
+          >
+            Arrêter
+          </button>
         </div>
       )}
 
