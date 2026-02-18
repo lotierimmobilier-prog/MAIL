@@ -4,6 +4,7 @@ import { supabase } from '../../lib/supabase';
 import TipTapEditor, { juice } from '../ui/TipTapEditor';
 import AttachmentsManager from './AttachmentsManager';
 import ContactAutocomplete from '../contacts/ContactAutocomplete';
+import { useMailboxPermissions } from '../../hooks/useMailboxPermissions';
 import type { Ticket, Email } from '../../lib/types';
 
 interface EmailComposerProps {
@@ -14,6 +15,8 @@ interface EmailComposerProps {
 }
 
 export default function EmailComposer({ ticket, emails, onClose, onSent }: EmailComposerProps) {
+  const { canSendMailbox } = useMailboxPermissions();
+  const canSend = canSendMailbox(ticket.mailbox_id);
   const [to, setTo] = useState(ticket.contact_email);
   const [subject, setSubject] = useState(`Re: ${ticket.subject}`);
   const [body, setBody] = useState('');
@@ -414,19 +417,25 @@ export default function EmailComposer({ ticket, emails, onClose, onSent }: Email
           </div>
         </div>
 
-        <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-200 bg-slate-50">
-          <button
-            onClick={onClose}
-            disabled={sending}
-            className="px-4 py-2 text-sm text-slate-600 hover:text-slate-900 transition disabled:opacity-50"
-          >
-            Annuler
-          </button>
-          <button
-            onClick={handleSend}
-            disabled={sending || !to || !subject || !body}
-            className="flex items-center gap-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-medium rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
-          >
+        <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-slate-200 bg-slate-50">
+          {!canSend && (
+            <p className="text-xs text-red-500 font-medium">
+              Vous n'avez pas la permission d'envoyer depuis cette boite mail.
+            </p>
+          )}
+          <div className="flex items-center gap-3 ml-auto">
+            <button
+              onClick={onClose}
+              disabled={sending}
+              className="px-4 py-2 text-sm text-slate-600 hover:text-slate-900 transition disabled:opacity-50"
+            >
+              Annuler
+            </button>
+            <button
+              onClick={handleSend}
+              disabled={sending || !to || !subject || !body || !canSend}
+              className="flex items-center gap-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-medium rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
             {sending ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -439,6 +448,7 @@ export default function EmailComposer({ ticket, emails, onClose, onSent }: Email
               </>
             )}
           </button>
+          </div>
         </div>
       </div>
     </div>

@@ -74,14 +74,18 @@ export default function UserEditModal({ user, mailboxes, onClose, onSaved }: Use
     setMailboxPerms(prev => {
       const existing = prev.find(p => p.mailboxId === mailboxId);
       if (existing) {
-        if (permission === 'canRead' && existing.canRead && !existing.canSend && !existing.canManage) {
+        if (permission === 'canRead' && existing.canRead) {
           return prev.filter(p => p.mailboxId !== mailboxId);
         }
-        return prev.map(p =>
-          p.mailboxId === mailboxId ? { ...p, [permission]: !p[permission] } : p
-        );
+        const updated = { ...existing, [permission]: !existing[permission] };
+        return prev.map(p => p.mailboxId === mailboxId ? updated : p);
       }
-      return [...prev, { mailboxId, canRead: true, canSend: false, canManage: false }];
+      return [...prev, {
+        mailboxId,
+        canRead: true,
+        canSend: permission === 'canSend',
+        canManage: permission === 'canManage',
+      }];
     });
   }
 
@@ -271,17 +275,20 @@ export default function UserEditModal({ user, mailboxes, onClose, onSaved }: Use
             <div className="space-y-2 max-h-48 overflow-y-auto border border-slate-200 rounded-lg">
               {mailboxes.map(mailbox => {
                 const perm = mailboxPerms.find(p => p.mailboxId === mailbox.id);
+                const hasAnyPerm = perm?.canRead || perm?.canSend || perm?.canManage;
                 return (
-                  <div key={mailbox.id} className="flex items-center gap-3 p-3 hover:bg-slate-50 border-b border-slate-100 last:border-0">
+                  <div key={mailbox.id} className={`flex items-center gap-3 p-3 border-b border-slate-100 last:border-0 transition ${hasAnyPerm ? 'bg-white' : 'bg-slate-50'}`}>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-slate-900">{mailbox.name}</p>
+                      <p className={`text-sm font-medium ${hasAnyPerm ? 'text-slate-900' : 'text-slate-400'}`}>{mailbox.name}</p>
                       <p className="text-xs text-slate-500">{mailbox.email_address}</p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       <button
                         onClick={() => toggleMailboxPerm(mailbox.id, 'canRead')}
-                        className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition ${
-                          perm?.canRead ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition border ${
+                          perm?.canRead
+                            ? 'bg-blue-500 text-white border-blue-500 shadow-sm'
+                            : 'bg-white text-slate-400 border-slate-200 hover:border-slate-300 hover:text-slate-600'
                         }`}
                       >
                         <Mail className="w-3 h-3" />
@@ -289,9 +296,11 @@ export default function UserEditModal({ user, mailboxes, onClose, onSaved }: Use
                       </button>
                       <button
                         onClick={() => toggleMailboxPerm(mailbox.id, 'canSend')}
-                        className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition ${
-                          perm?.canSend ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-                        }`}
+                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition border ${
+                          perm?.canSend
+                            ? 'bg-emerald-500 text-white border-emerald-500 shadow-sm'
+                            : 'bg-white text-slate-400 border-slate-200 hover:border-slate-300 hover:text-slate-600'
+                        } ${!perm?.canRead ? 'opacity-40 cursor-not-allowed' : ''}`}
                         disabled={!perm?.canRead}
                       >
                         <Send className="w-3 h-3" />
@@ -299,9 +308,11 @@ export default function UserEditModal({ user, mailboxes, onClose, onSaved }: Use
                       </button>
                       <button
                         onClick={() => toggleMailboxPerm(mailbox.id, 'canManage')}
-                        className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition ${
-                          perm?.canManage ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-                        }`}
+                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition border ${
+                          perm?.canManage
+                            ? 'bg-orange-500 text-white border-orange-500 shadow-sm'
+                            : 'bg-white text-slate-400 border-slate-200 hover:border-slate-300 hover:text-slate-600'
+                        } ${!perm?.canRead ? 'opacity-40 cursor-not-allowed' : ''}`}
                         disabled={!perm?.canRead}
                       >
                         <SettingsIcon className="w-3 h-3" />

@@ -12,11 +12,13 @@ import AiResponseSuggestions from './AiResponseSuggestions';
 import ContactHistorySummary from './ContactHistorySummary';
 import LoadingSpinner from '../ui/LoadingSpinner';
 import { supabase } from '../../lib/supabase';
+import { useMailboxPermissions } from '../../hooks/useMailboxPermissions';
 import type { Ticket, Email, Profile, Category, InternalNote, EmailTemplate, Attachment } from '../../lib/types';
 
 export default function TicketDetailView() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { canSendMailbox } = useMailboxPermissions();
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [emails, setEmails] = useState<Email[]>([]);
   const [notes, setNotes] = useState<InternalNote[]>([]);
@@ -143,15 +145,17 @@ export default function TicketDetailView() {
               />
             )}
 
-            <div className="flex justify-end">
-              <button
-                onClick={() => setComposerOpen(true)}
-                className="flex items-center gap-2 px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-medium rounded-lg shadow-sm transition"
-              >
-                <Mail className="w-4 h-4" />
-                Envoyer un email
-              </button>
-            </div>
+            {canSendMailbox(ticket.mailbox_id) && (
+              <div className="flex justify-end">
+                <button
+                  onClick={() => setComposerOpen(true)}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-medium rounded-lg shadow-sm transition"
+                >
+                  <Mail className="w-4 h-4" />
+                  Envoyer un email
+                </button>
+              </div>
+            )}
 
             <DraftComposer ticket={ticket} emails={emails} templates={templates} onSent={loadTicket} />
             <InternalNotes ticketId={ticket.id} notes={notes} onNoteAdded={loadTicket} />

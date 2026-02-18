@@ -13,6 +13,7 @@ import NewEmailModal from '../email/NewEmailModal';
 import AiSearchBar from '../search/AiSearchBar';
 import { supabase } from '../../lib/supabase';
 import { getStatusConfig, getPriorityConfig } from '../../lib/constants';
+import { useMailboxPermissions } from '../../hooks/useMailboxPermissions';
 import type { Ticket, Category, Mailbox } from '../../lib/types';
 
 const DEFAULT_PAGE_SIZE = 25;
@@ -28,6 +29,7 @@ interface AiClassification {
 export default function InboxView() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const { getReadableMailboxIds, loading: permsLoading } = useMailboxPermissions();
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [mailboxes, setMailboxes] = useState<Mailbox[]>([]);
@@ -67,9 +69,14 @@ export default function InboxView() {
     ]);
 
     const activeMailboxIds = new Set((mbRes.data || []).map(m => m.id));
+    const readableIds = getReadableMailboxIds();
 
     if (ticketRes.data) {
-      setTickets(ticketRes.data.filter(t => activeMailboxIds.has(t.mailbox_id)));
+      setTickets(ticketRes.data.filter(t => {
+        if (!activeMailboxIds.has(t.mailbox_id)) return false;
+        if (readableIds && !readableIds.has(t.mailbox_id)) return false;
+        return true;
+      }));
 
       const ticketIds = ticketRes.data.map(t => t.id);
 
@@ -109,13 +116,18 @@ export default function InboxView() {
       }
     }
     if (catRes.data) setCategories(catRes.data);
-    if (mbRes.data) setMailboxes(mbRes.data);
+    if (mbRes.data) {
+      setMailboxes(readableIds
+        ? mbRes.data.filter(m => readableIds.has(m.id))
+        : mbRes.data
+      );
+    }
     setLoading(false);
     setRefreshing(false);
     setSelected(new Set());
-  }, []);
+  }, [getReadableMailboxIds]);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { if (!permsLoading) loadData(); }, [loadData, permsLoading]);
 
   useEffect(() => {
     const channel = supabase

@@ -4,6 +4,7 @@ import { supabase } from '../../lib/supabase';
 import TipTapEditor, { juice } from '../ui/TipTapEditor';
 import AttachmentsManager from './AttachmentsManager';
 import ContactAutocomplete from '../contacts/ContactAutocomplete';
+import { useMailboxPermissions } from '../../hooks/useMailboxPermissions';
 import type { Mailbox } from '../../lib/types';
 
 interface NewEmailModalProps {
@@ -12,6 +13,7 @@ interface NewEmailModalProps {
 }
 
 export default function NewEmailModal({ onClose, onSent }: NewEmailModalProps) {
+  const { getSendableMailboxIds } = useMailboxPermissions();
   const [mailboxes, setMailboxes] = useState<Mailbox[]>([]);
   const [selectedMailbox, setSelectedMailbox] = useState('');
   const [to, setTo] = useState('');
@@ -32,8 +34,10 @@ export default function NewEmailModal({ onClose, onSent }: NewEmailModalProps) {
         .eq('is_active', true)
         .order('name');
       if (data) {
-        setMailboxes(data);
-        if (data.length > 0) setSelectedMailbox(data[0].id);
+        const sendableIds = getSendableMailboxIds();
+        const filtered = sendableIds ? data.filter(m => sendableIds.has(m.id)) : data;
+        setMailboxes(filtered);
+        if (filtered.length > 0) setSelectedMailbox(filtered[0].id);
       }
     }
     async function loadSignatures() {
