@@ -127,16 +127,16 @@ export default function TicketDetailView() {
     <div className="min-h-screen">
       <Header title={ticket.subject} subtitle={`Ticket ${ticket.id.slice(0, 8)}`} />
 
-      <div className="p-6">
+      <div className="p-3 lg:p-6">
         <button
           onClick={() => navigate('/inbox')}
-          className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 mb-4 transition"
+          className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 mb-3 lg:mb-4 transition pl-8 lg:pl-0"
         >
           <ArrowLeft className="w-4 h-4" />
-          Retour à la boîte de réception
+          Retour
         </button>
 
-        <div className="flex items-center gap-2 mb-6">
+        <div className="flex items-center gap-2 mb-4 lg:mb-6">
           <Hash className="w-4 h-4 text-slate-400" />
           <span className="text-xs text-slate-400 font-mono">{ticket.id.slice(0, 8)}</span>
         </div>

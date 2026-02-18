@@ -130,35 +130,35 @@ export default function ContactsView() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Annuaire</h1>
+    <div className="space-y-4 lg:space-y-6 p-3 lg:p-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="pl-8 lg:pl-0">
+          <h1 className="text-xl lg:text-2xl font-bold text-slate-900">Annuaire</h1>
           <p className="text-sm text-slate-500 mt-1">
             {total} contact{total !== 1 ? 's' : ''} au total
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={() => setShowImport(true)}
             className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition"
           >
             <Upload className="w-4 h-4" />
-            Importer CSV
+            <span className="hidden sm:inline">Importer CSV</span>
           </button>
           <button
             onClick={handleExportCsv}
             className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition"
           >
             <Download className="w-4 h-4" />
-            Exporter
+            <span className="hidden sm:inline">Exporter</span>
           </button>
           <button
             onClick={() => { setEditingContact(null); setShowForm(true); }}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-cyan-600 hover:bg-cyan-700 rounded-lg transition"
+            className="flex items-center gap-2 px-3 lg:px-4 py-2 text-sm font-medium text-white bg-cyan-600 hover:bg-cyan-700 rounded-lg transition"
           >
             <Plus className="w-4 h-4" />
-            Nouveau contact
+            <span className="hidden sm:inline">Nouveau contact</span>
           </button>
         </div>
       </div>
@@ -202,7 +202,7 @@ export default function ContactsView() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-slate-100 text-left">
-                  <th className="px-4 py-3 w-10">
+                  <th className="px-3 lg:px-4 py-3 w-10">
                     <input
                       type="checkbox"
                       checked={selectedIds.size === contacts.length && contacts.length > 0}
@@ -210,12 +210,12 @@ export default function ContactsView() {
                       className="rounded border-slate-300"
                     />
                   </th>
-                  <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Contact</th>
-                  <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Societe</th>
-                  <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Telephone</th>
-                  <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Source</th>
-                  <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Emails</th>
-                  <th className="px-4 py-3 w-10"></th>
+                  <th className="px-3 lg:px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Contact</th>
+                  <th className="px-3 lg:px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider hidden md:table-cell">Societe</th>
+                  <th className="px-3 lg:px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider hidden lg:table-cell">Telephone</th>
+                  <th className="px-3 lg:px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider hidden sm:table-cell">Source</th>
+                  <th className="px-3 lg:px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider hidden sm:table-cell">Emails</th>
+                  <th className="px-3 lg:px-4 py-3 w-10"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
@@ -224,7 +224,7 @@ export default function ContactsView() {
                     key={contact.id}
                     className="hover:bg-slate-50/50 transition group"
                   >
-                    <td className="px-4 py-3">
+                    <td className="px-3 lg:px-4 py-3">
                       <input
                         type="checkbox"
                         checked={selectedIds.has(contact.id)}
@@ -232,9 +232,9 @@ export default function ContactsView() {
                         className="rounded border-slate-300"
                       />
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 lg:px-4 py-3">
                       <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-full bg-cyan-100 text-cyan-700 flex items-center justify-center text-sm font-semibold shrink-0">
+                        <div className="w-8 h-8 lg:w-9 lg:h-9 rounded-full bg-cyan-100 text-cyan-700 flex items-center justify-center text-xs lg:text-sm font-semibold shrink-0">
                           {(contact.first_name?.[0] || contact.email[0] || '?').toUpperCase()}
                           {(contact.last_name?.[0] || '').toUpperCase()}
                         </div>
@@ -246,12 +246,12 @@ export default function ContactsView() {
                           </p>
                           <div className="flex items-center gap-1 text-xs text-slate-500">
                             <Mail className="w-3 h-3" />
-                            <span className="truncate">{contact.email}</span>
+                            <span className="truncate max-w-[120px] lg:max-w-none">{contact.email}</span>
                           </div>
                         </div>
                       </div>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 lg:px-4 py-3 hidden md:table-cell">
                       {contact.company && (
                         <div className="flex items-center gap-1.5 text-sm text-slate-600">
                           <Building2 className="w-3.5 h-3.5 text-slate-400" />
@@ -259,7 +259,7 @@ export default function ContactsView() {
                         </div>
                       )}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 lg:px-4 py-3 hidden lg:table-cell">
                       {contact.phone && (
                         <div className="flex items-center gap-1.5 text-sm text-slate-600">
                           <Phone className="w-3.5 h-3.5 text-slate-400" />
@@ -267,18 +267,18 @@ export default function ContactsView() {
                         </div>
                       )}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 lg:px-4 py-3 hidden sm:table-cell">
                       <span className={`inline-flex px-2 py-0.5 text-xs font-medium rounded-full ${sourceColor(contact.source)}`}>
                         {sourceLabel(contact.source)}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-sm text-slate-600 text-center">
+                    <td className="px-3 lg:px-4 py-3 text-sm text-slate-600 text-center hidden sm:table-cell">
                       {contact.email_count}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 lg:px-4 py-3">
                       <button
                         onClick={() => { setEditingContact(contact); setShowForm(true); }}
-                        className="p-1.5 text-slate-400 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition opacity-0 group-hover:opacity-100"
+                        className="p-1.5 text-slate-400 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition sm:opacity-0 sm:group-hover:opacity-100"
                       >
                         <Edit3 className="w-4 h-4" />
                       </button>

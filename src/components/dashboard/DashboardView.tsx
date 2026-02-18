@@ -291,28 +291,28 @@ export default function DashboardView() {
   return (
     <div className="min-h-screen">
       <Header title="Dashboard" subtitle={format(new Date(), 'EEEE, MMMM d, yyyy')} />
-      <div className="p-6 space-y-6">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-slate-900">Vue d'ensemble</h2>
-          <div className="flex items-center gap-3">
+      <div className="p-3 lg:p-6 space-y-4 lg:space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <h2 className="text-base lg:text-lg font-semibold text-slate-900">Vue d'ensemble</h2>
+          <div className="flex items-center gap-2 lg:gap-3 flex-wrap">
             <button
               onClick={handleSync}
               disabled={syncing}
-              className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 text-sm font-medium rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center gap-2 px-3 lg:px-4 py-2 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 text-sm font-medium rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {syncing ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
                 <RefreshCw className="w-4 h-4" />
               )}
-              Synchroniser
+              <span className="hidden sm:inline">Synchroniser</span>
             </button>
             <button
               onClick={() => setShowNewEmail(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-medium rounded-lg transition"
+              className="flex items-center gap-2 px-3 lg:px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-medium rounded-lg transition"
             >
               <PenSquare className="w-4 h-4" />
-              Nouveau mail
+              <span className="hidden sm:inline">Nouveau mail</span>
             </button>
             <PeriodFilter selectedPeriod={selectedPeriod} onChange={setSelectedPeriod} />
           </div>
@@ -372,16 +372,25 @@ export default function DashboardView() {
                 <div
                   key={ticket.id}
                   onClick={() => navigate(`/inbox/${ticket.id}`)}
-                  className="flex items-center gap-4 px-5 py-3.5 hover:bg-slate-50 cursor-pointer transition"
+                  className="px-3 lg:px-5 py-3 lg:py-3.5 hover:bg-slate-50 cursor-pointer transition"
                 >
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-slate-900 truncate">{ticket.subject}</p>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      {ticket.contact_name || ticket.contact_email}
-                      {ticket.assignee && ` — assigné à ${(ticket.assignee as { full_name: string }).full_name}`}
-                    </p>
+                  <div className="flex items-start lg:items-center gap-3 lg:gap-4">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-slate-900 truncate">{ticket.subject}</p>
+                      <p className="text-xs text-slate-500 mt-0.5 truncate">
+                        {ticket.contact_name || ticket.contact_email}
+                        {ticket.assignee && ` — ${(ticket.assignee as { full_name: string }).full_name}`}
+                      </p>
+                    </div>
+                    <div className="hidden sm:flex items-center gap-2 shrink-0">
+                      {ticket.category && (
+                        <Badge label={(ticket.category as { name: string; color: string }).name} color={(ticket.category as { name: string; color: string }).color} />
+                      )}
+                      {ticket.priority && <Badge label={priorityCfg.label} color={priorityCfg.color} />}
+                      {ticket.status && <Badge label={statusCfg.label} color={statusCfg.color} />}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex flex-wrap items-center gap-1.5 mt-2 sm:hidden">
                     {ticket.category && (
                       <Badge label={(ticket.category as { name: string; color: string }).name} color={(ticket.category as { name: string; color: string }).color} />
                     )}

@@ -19,14 +19,14 @@ export default function Header({ title, subtitle }: HeaderProps) {
   };
 
   return (
-    <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 shrink-0">
-      <div>
-        <h1 className="text-lg font-semibold text-slate-900">{title}</h1>
+    <header className="h-14 lg:h-16 bg-white border-b border-slate-200 flex items-center justify-between px-3 lg:px-6 shrink-0">
+      <div className="pl-10 lg:pl-0">
+        <h1 className="text-base lg:text-lg font-semibold text-slate-900">{title}</h1>
         {subtitle && <p className="text-xs text-slate-500 mt-0.5">{subtitle}</p>}
       </div>
 
-      <div className="flex items-center gap-4">
-        <div className="relative hidden md:block">
+      <div className="flex items-center gap-2 lg:gap-4">
+        <div className="relative hidden lg:block">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input
             type="text"

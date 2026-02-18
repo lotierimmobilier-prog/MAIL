@@ -379,91 +379,96 @@ export default function InboxView() {
     <div className="min-h-screen flex flex-col">
       <Header title="Inbox" subtitle={`${filtered.length} ticket${filtered.length !== 1 ? 's' : ''}`} />
 
-      <div className="bg-slate-50 border-b border-slate-200 px-5 py-4">
+      <div className="bg-slate-50 border-b border-slate-200 px-3 lg:px-5 py-3 lg:py-4">
         <AiSearchBar onResultClick={handleAiSearchResultClick} />
       </div>
 
-      <div className="bg-white border-b border-slate-200 px-5 py-2 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          {paginatedTickets.length > 0 && (
-            <button
-              onClick={toggleSelectAll}
-              className="p-1 rounded text-slate-400 hover:text-slate-600 transition"
-              title={allPageSelected ? 'Tout désélectionner' : 'Tout sélectionner'}
-            >
-              {allPageSelected ? (
-                <CheckSquare className="w-4.5 h-4.5 text-cyan-600" />
-              ) : somePageSelected ? (
-                <MinusSquare className="w-4.5 h-4.5 text-cyan-600" />
-              ) : (
-                <Square className="w-4.5 h-4.5" />
-              )}
-            </button>
-          )}
-
-          {mailboxes.length > 1 && (
-            <select
-              value={filters.mailbox_id}
-              onChange={e => setFilters({ ...filters, mailbox_id: e.target.value })}
-              className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500"
-            >
-              <option value="">Toutes les boîtes mail</option>
-              {mailboxes.map(m => (
-                <option key={m.id} value={m.id}>{m.name}</option>
-              ))}
-            </select>
-          )}
-
-          {selected.size > 0 && (
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-slate-600">
-                {selected.size} sélectionné{selected.size > 1 ? 's' : ''}
-              </span>
+      <div className="bg-white border-b border-slate-200 px-3 lg:px-5 py-2">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 lg:gap-3 min-w-0">
+            {paginatedTickets.length > 0 && (
               <button
-                onClick={handleBulkDelete}
-                disabled={deleting}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 text-xs font-medium rounded-lg transition disabled:opacity-50"
+                onClick={toggleSelectAll}
+                className="p-1 rounded text-slate-400 hover:text-slate-600 transition shrink-0"
+                title={allPageSelected ? 'Tout désélectionner' : 'Tout sélectionner'}
               >
-                <Trash2 className="w-3.5 h-3.5" />
-                {deleting ? 'Suppression...' : 'Supprimer'}
+                {allPageSelected ? (
+                  <CheckSquare className="w-4.5 h-4.5 text-cyan-600" />
+                ) : somePageSelected ? (
+                  <MinusSquare className="w-4.5 h-4.5 text-cyan-600" />
+                ) : (
+                  <Square className="w-4.5 h-4.5" />
+                )}
               </button>
-            </div>
-          )}
-        </div>
-
-        <div className="flex items-center gap-2">
-          {syncResult && (
-            <span className={`text-xs font-medium ${syncResult.ok ? 'text-emerald-600' : 'text-red-500'}`}>
-              {syncResult.msg}
-            </span>
-          )}
-          <button
-            onClick={() => setShowNewEmailModal(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition"
-          >
-            <PenSquare className="w-3.5 h-3.5" />
-            Nouveau message
-          </button>
-          <button
-            onClick={handleSyncAll}
-            disabled={syncing}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-cyan-600 hover:bg-cyan-700 rounded-lg transition disabled:opacity-50"
-          >
-            {syncing ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <Download className="w-3.5 h-3.5" />
             )}
-            {syncing ? 'Synchronisation...' : 'Synchroniser'}
-          </button>
-          <button
-            onClick={() => loadData(true)}
-            disabled={refreshing}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-cyan-700 hover:bg-cyan-50 rounded-lg transition disabled:opacity-50"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
-            Actualiser
-          </button>
+
+            {mailboxes.length > 1 && (
+              <select
+                value={filters.mailbox_id}
+                onChange={e => setFilters({ ...filters, mailbox_id: e.target.value })}
+                className="px-2 lg:px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 max-w-[140px] lg:max-w-none"
+              >
+                <option value="">Toutes les boîtes</option>
+                {mailboxes.map(m => (
+                  <option key={m.id} value={m.id}>{m.name}</option>
+                ))}
+              </select>
+            )}
+
+            {selected.size > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-slate-600 hidden sm:inline">
+                  {selected.size} sélectionné{selected.size > 1 ? 's' : ''}
+                </span>
+                <button
+                  onClick={handleBulkDelete}
+                  disabled={deleting}
+                  className="flex items-center gap-1.5 px-2 lg:px-3 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 text-xs font-medium rounded-lg transition disabled:opacity-50"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">{deleting ? 'Suppression...' : 'Supprimer'}</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center gap-1.5 lg:gap-2 shrink-0">
+            {syncResult && (
+              <span className={`text-xs font-medium hidden lg:inline ${syncResult.ok ? 'text-emerald-600' : 'text-red-500'}`}>
+                {syncResult.msg}
+              </span>
+            )}
+            <button
+              onClick={() => setShowNewEmailModal(true)}
+              className="flex items-center gap-1.5 px-2 lg:px-3 py-1.5 text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition"
+              title="Nouveau message"
+            >
+              <PenSquare className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">Nouveau</span>
+            </button>
+            <button
+              onClick={handleSyncAll}
+              disabled={syncing}
+              className="flex items-center gap-1.5 px-2 lg:px-3 py-1.5 text-xs font-medium text-white bg-cyan-600 hover:bg-cyan-700 rounded-lg transition disabled:opacity-50"
+              title="Synchroniser"
+            >
+              {syncing ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Download className="w-3.5 h-3.5" />
+              )}
+              <span className="hidden md:inline">{syncing ? 'Sync...' : 'Sync'}</span>
+            </button>
+            <button
+              onClick={() => loadData(true)}
+              disabled={refreshing}
+              className="flex items-center gap-1.5 px-2 lg:px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-cyan-700 hover:bg-cyan-50 rounded-lg transition disabled:opacity-50"
+              title="Actualiser"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+              <span className="hidden lg:inline">Actualiser</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -497,125 +502,148 @@ export default function InboxView() {
                 <div
                   key={ticket.id}
                   onClick={() => navigate(`/inbox/${ticket.id}`)}
-                  className={`flex items-center gap-3 px-5 py-4 cursor-pointer transition group ${
+                  className={`px-3 lg:px-5 py-3 lg:py-4 cursor-pointer transition group ${
                     isSelected ? 'bg-cyan-50/60' : 'bg-white hover:bg-slate-50'
                   }`}
                 >
-                  <button
-                    onClick={e => toggleSelect(ticket.id, e)}
-                    className="p-0.5 rounded text-slate-400 hover:text-cyan-600 transition shrink-0"
-                  >
-                    {isSelected ? (
-                      <CheckSquare className="w-4 h-4 text-cyan-600" />
+                  <div className="flex items-start lg:items-center gap-2 lg:gap-3">
+                    <button
+                      onClick={e => toggleSelect(ticket.id, e)}
+                      className="p-0.5 rounded text-slate-400 hover:text-cyan-600 transition shrink-0 mt-0.5 lg:mt-0"
+                    >
+                      {isSelected ? (
+                        <CheckSquare className="w-4 h-4 text-cyan-600" />
+                      ) : (
+                        <Square className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      )}
+                    </button>
+
+                    {assignee ? (
+                      <div
+                        className="w-2.5 h-2.5 rounded shrink-0 mt-1.5 lg:mt-0"
+                        style={{ backgroundColor: assignee.avatar_color || '#0891B2' }}
+                        title={`Assigné à ${assignee.full_name}`}
+                      />
                     ) : (
-                      <Square className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      <div
+                        className="w-2 h-2 rounded-full shrink-0 mt-1.5 lg:mt-0"
+                        style={{ backgroundColor: statusCfg.color }}
+                      />
                     )}
-                  </button>
 
-                  {assignee ? (
-                    <div
-                      className="w-2.5 h-2.5 rounded shrink-0"
-                      style={{ backgroundColor: assignee.avatar_color || '#0891B2' }}
-                      title={`Assigné à ${assignee.full_name}`}
-                    />
-                  ) : (
-                    <div
-                      className="w-2 h-2 rounded-full shrink-0"
-                      style={{ backgroundColor: statusCfg.color }}
-                    />
-                  )}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className={`text-sm text-slate-900 truncate group-hover:text-cyan-700 transition ${isUnread ? 'font-bold' : 'font-normal'}`}>
+                          {ticket.subject}
+                        </p>
+                        {ticketAttachments.has(ticket.id) && (
+                          <Paperclip className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        )}
+                        {ticket.priority === 'urgent' && (
+                          <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 mt-1 text-xs text-slate-500">
+                        <span className={`text-slate-700 truncate ${isUnread ? 'font-semibold' : 'font-normal'}`}>
+                          {ticket.contact_name || ticket.contact_email}
+                        </span>
+                        {mailbox && (
+                          <>
+                            <span className="text-slate-300 hidden sm:inline">|</span>
+                            <span className="hidden sm:inline">{mailbox.name}</span>
+                          </>
+                        )}
+                        {assignee && (
+                          <>
+                            <span className="text-slate-300 hidden md:inline">|</span>
+                            <span className="hidden md:inline">Assigné : {assignee.full_name}</span>
+                          </>
+                        )}
+                        <span className="text-slate-400 lg:hidden ml-auto shrink-0">
+                          {isToday(new Date(ticket.last_message_at))
+                            ? format(new Date(ticket.last_message_at), "HH:mm", { locale: fr })
+                            : format(new Date(ticket.last_message_at), "dd/MM", { locale: fr })}
+                        </span>
+                      </div>
 
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className={`text-sm text-slate-900 truncate group-hover:text-cyan-700 transition ${isUnread ? 'font-bold' : 'font-normal'}`}>
-                        {ticket.subject}
-                      </p>
-                      {ticketAttachments.has(ticket.id) && (
-                        <Paperclip className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                      )}
-                      {ticket.priority === 'urgent' && (
-                        <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-                      )}
+                      <div className="flex flex-wrap items-center gap-1.5 mt-2 lg:hidden">
+                        {category && <Badge label={category.name} color={category.color} />}
+                        {!category && (() => {
+                          const aiClass = aiClassifications.get(ticket.id);
+                          if (aiClass && aiClass.confidence >= 0.6) {
+                            const isApplying = classifying.has(ticket.id);
+                            return (
+                              <button
+                                onClick={e => handleApplyAiSuggestion(ticket.id, e)}
+                                disabled={isApplying}
+                                className="flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium transition hover:opacity-80 disabled:opacity-50"
+                                style={{ backgroundColor: '#A78BFA20', color: '#7C3AED', border: '1px dashed #A78BFA' }}
+                              >
+                                {isApplying ? <Loader2 className="w-3 h-3 animate-spin" /> : <span className="text-[10px]">AI</span>}
+                                <span>{aiClass.category}</span>
+                              </button>
+                            );
+                          }
+                          return null;
+                        })()}
+                        {ticket.priority && <Badge label={priorityCfg.label} color={priorityCfg.color} />}
+                        {ticket.status && <Badge label={statusCfg.label} color={statusCfg.color} />}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2 mt-1 text-xs text-slate-500">
-                      <span className={`text-slate-700 ${isUnread ? 'font-semibold' : 'font-normal'}`}>
-                        {ticket.contact_name || ticket.contact_email}
-                      </span>
-                      {mailbox && (
-                        <>
-                          <span className="text-slate-300">|</span>
-                          <span>{mailbox.name}</span>
-                        </>
-                      )}
-                      {assignee && (
-                        <>
-                          <span className="text-slate-300">|</span>
-                          <span>Assigné : {assignee.full_name}</span>
-                        </>
-                      )}
-                    </div>
-                  </div>
 
-                  <div className="flex items-center gap-2 shrink-0">
-                    {category && <Badge label={category.name} color={category.color} />}
-                    {!category && (() => {
-                      const aiClass = aiClassifications.get(ticket.id);
-                      if (aiClass && aiClass.confidence >= 0.6) {
-                        const isApplying = classifying.has(ticket.id);
+                    <div className="hidden lg:flex items-center gap-2 shrink-0">
+                      {category && <Badge label={category.name} color={category.color} />}
+                      {!category && (() => {
+                        const aiClass = aiClassifications.get(ticket.id);
+                        if (aiClass && aiClass.confidence >= 0.6) {
+                          const isApplying = classifying.has(ticket.id);
+                          return (
+                            <button
+                              onClick={e => handleApplyAiSuggestion(ticket.id, e)}
+                              disabled={isApplying}
+                              className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition hover:opacity-80 disabled:opacity-50"
+                              style={{ backgroundColor: '#A78BFA20', color: '#7C3AED', border: '1px dashed #A78BFA' }}
+                              title={`IA suggère : ${aiClass.category} (${Math.round(aiClass.confidence * 100)}% confiance)\nCliquez pour appliquer`}
+                            >
+                              {isApplying ? <Loader2 className="w-3 h-3 animate-spin" /> : <span className="text-[10px]">AI</span>}
+                              <span>{aiClass.category}</span>
+                            </button>
+                          );
+                        }
+                        return null;
+                      })()}
+                      {ticket.priority && <Badge label={priorityCfg.label} color={priorityCfg.color} />}
+                      {ticket.status && <Badge label={statusCfg.label} color={statusCfg.color} />}
+                      {ticket.due_date && (() => {
+                        const dueDate = new Date(ticket.due_date);
+                        const dueDateStr = format(dueDate, 'dd/MM');
+                        let dueBadgeColor = '#64748B';
+                        let dueBadgeLabel = dueDateStr;
+
+                        if (isPast(dueDate) && !isToday(dueDate)) {
+                          dueBadgeColor = '#EF4444';
+                          dueBadgeLabel = `En retard (${dueDateStr})`;
+                        } else if (isToday(dueDate)) {
+                          dueBadgeColor = '#F59E0B';
+                          dueBadgeLabel = `Aujourd'hui`;
+                        } else if (isFuture(dueDate)) {
+                          dueBadgeColor = '#10B981';
+                          dueBadgeLabel = `Échéance ${dueDateStr}`;
+                        }
+
                         return (
-                          <button
-                            onClick={e => handleApplyAiSuggestion(ticket.id, e)}
-                            disabled={isApplying}
-                            className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition hover:opacity-80 disabled:opacity-50"
-                            style={{
-                              backgroundColor: '#A78BFA20',
-                              color: '#7C3AED',
-                              border: '1px dashed #A78BFA'
-                            }}
-                            title={`IA suggère : ${aiClass.category} (${Math.round(aiClass.confidence * 100)}% confiance)\nCliquez pour appliquer`}
-                          >
-                            {isApplying ? (
-                              <Loader2 className="w-3 h-3 animate-spin" />
-                            ) : (
-                              <span className="text-[10px]">🤖</span>
-                            )}
-                            <span>{aiClass.category}</span>
-                          </button>
+                          <div className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium" style={{ backgroundColor: `${dueBadgeColor}15`, color: dueBadgeColor }}>
+                            <Calendar className="w-3 h-3" />
+                            {dueBadgeLabel}
+                          </div>
                         );
-                      }
-                      return null;
-                    })()}
-                    {ticket.priority && <Badge label={priorityCfg.label} color={priorityCfg.color} />}
-                    {ticket.status && <Badge label={statusCfg.label} color={statusCfg.color} />}
-                    {ticket.due_date && (() => {
-                      const dueDate = new Date(ticket.due_date);
-                      const dueDateStr = format(dueDate, 'dd/MM');
-                      let dueBadgeColor = '#64748B';
-                      let dueBadgeLabel = dueDateStr;
-
-                      if (isPast(dueDate) && !isToday(dueDate)) {
-                        dueBadgeColor = '#EF4444';
-                        dueBadgeLabel = `En retard (${dueDateStr})`;
-                      } else if (isToday(dueDate)) {
-                        dueBadgeColor = '#F59E0B';
-                        dueBadgeLabel = `Aujourd'hui`;
-                      } else if (isFuture(dueDate)) {
-                        dueBadgeColor = '#10B981';
-                        dueBadgeLabel = `Échéance ${dueDateStr}`;
-                      }
-
-                      return (
-                        <div className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium" style={{ backgroundColor: `${dueBadgeColor}15`, color: dueBadgeColor }}>
-                          <Calendar className="w-3 h-3" />
-                          {dueBadgeLabel}
-                        </div>
-                      );
-                    })()}
-                    <span className="text-xs text-slate-400 w-28 text-right">
-                      {isToday(new Date(ticket.last_message_at))
-                        ? format(new Date(ticket.last_message_at), "HH:mm", { locale: fr })
-                        : format(new Date(ticket.last_message_at), "dd MMM 'à' HH:mm", { locale: fr })}
-                    </span>
+                      })()}
+                      <span className="text-xs text-slate-400 w-28 text-right">
+                        {isToday(new Date(ticket.last_message_at))
+                          ? format(new Date(ticket.last_message_at), "HH:mm", { locale: fr })
+                          : format(new Date(ticket.last_message_at), "dd MMM 'à' HH:mm", { locale: fr })}
+                      </span>
+                    </div>
                   </div>
                 </div>
               );

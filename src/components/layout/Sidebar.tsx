@@ -12,6 +12,9 @@ interface SidebarProps {
   collapsed: boolean;
   onToggle: () => void;
   onCompose: () => void;
+  mobileOpen?: boolean;
+  isMobile?: boolean;
+  onCloseMobile?: () => void;
 }
 
 const navItems = [
@@ -24,7 +27,7 @@ const navItems = [
   { to: '/admin', icon: Settings, label: 'Admin' },
 ];
 
-export default function Sidebar({ collapsed, onToggle, onCompose }: SidebarProps) {
+export default function Sidebar({ collapsed, onToggle, onCompose, mobileOpen, isMobile, onCloseMobile }: SidebarProps) {
   const { signOut } = useAuth();
   const [mailboxes, setMailboxes] = useState<Mailbox[]>([]);
   const [showMailboxes, setShowMailboxes] = useState(false);
@@ -58,8 +61,10 @@ export default function Sidebar({ collapsed, onToggle, onCompose }: SidebarProps
 
   return (
     <aside
-      className={`fixed top-0 left-0 h-screen bg-slate-900 text-white flex flex-col z-30 transition-all duration-300 ${
-        collapsed ? 'w-16' : 'w-60'
+      className={`fixed top-0 left-0 h-screen bg-slate-900 text-white flex flex-col transition-all duration-300 ${
+        isMobile
+          ? `w-60 z-50 ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`
+          : `z-30 ${collapsed ? 'w-16' : 'w-60'}`
       }`}
     >
       <div className="flex items-center gap-3 px-4 h-16 border-b border-slate-800 shrink-0">
@@ -90,6 +95,7 @@ export default function Sidebar({ collapsed, onToggle, onCompose }: SidebarProps
             <NavLink
               to={item.to}
               end={item.to === '/'}
+              onClick={() => isMobile && onCloseMobile?.()}
               className={({ isActive }) =>
                 `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                   isActive
