@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { format } from 'date-fns';
-import { ChevronDown, Plus, Eye, EyeOff, Mail, Send, Settings as SettingsIcon, Trash2 } from 'lucide-react';
+import { ChevronDown, Plus, Eye, EyeOff, Mail, Send, Settings as SettingsIcon, Trash2, Pencil } from 'lucide-react';
 import Badge from '../ui/Badge';
 import Modal from '../ui/Modal';
+import UserEditModal from './UserEditModal';
 import { supabase } from '../../lib/supabase';
-import type { Profile, UserRole, Mailbox } from '../../lib/types';
+import type { Profile, UserRole, Mailbox, ViewPermission } from '../../lib/types';
+import { ALL_VIEW_PERMISSIONS, VIEW_PERMISSION_LABELS } from '../../lib/types';
 import { callEdgeFunction } from '../../lib/edgeFunctionClient';
 
 const ROLE_COLORS: Record<string, string> = {
@@ -25,6 +27,7 @@ export default function UserManager() {
   const [users, setUsers] = useState<Profile[]>([]);
   const [mailboxes, setMailboxes] = useState<Mailbox[]>([]);
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [editUser, setEditUser] = useState<Profile | null>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -32,6 +35,7 @@ export default function UserManager() {
   const [role, setRole] = useState<UserRole>('agent');
   const [avatarColor, setAvatarColor] = useState('#0891B2');
   const [mailboxPermissions, setMailboxPermissions] = useState<MailboxPermission[]>([]);
+  const [createAllowedViews, setCreateAllowedViews] = useState<ViewPermission[]>([...ALL_VIEW_PERMISSIONS]);
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
@@ -57,6 +61,7 @@ export default function UserManager() {
     setAvatarColor('#0891B2');
     setShowPassword(false);
     setMailboxPermissions([]);
+    setCreateAllowedViews([...ALL_VIEW_PERMISSIONS]);
     setCreateModalOpen(true);
   }
 
@@ -108,6 +113,7 @@ export default function UserManager() {
           fullName,
           role,
           avatarColor,
+          allowedViews: createAllowedViews,
           mailboxPermissions
         },
         useUserToken: true,
@@ -244,6 +250,14 @@ export default function UserManager() {
                 <td className="px-4 py-3 text-right">
                   <div className="flex items-center justify-end gap-3">
                     <button
+                      onClick={() => setEditUser(user)}
+                      className="flex items-center gap-1 text-xs font-medium text-cyan-600 hover:text-cyan-800 transition"
+                      title="Modifier l'utilisateur"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                      Modifier
+                    </button>
+                    <button
                       onClick={() => toggleActive(user)}
                       className="text-xs font-medium text-slate-500 hover:text-slate-700 transition"
                     >
@@ -267,6 +281,18 @@ export default function UserManager() {
           <div className="px-4 py-8 text-center text-sm text-slate-500">Aucun utilisateur trouvé.</div>
         )}
       </div>
+
+      {editUser && (
+        <UserEditModal
+          user={editUser}
+          mailboxes={mailboxes}
+          onClose={() => setEditUser(null)}
+          onSaved={() => {
+            setEditUser(null);
+            load();
+          }}
+        />
+      )}
 
       <Modal open={createModalOpen} onClose={() => setCreateModalOpen(false)} title="Créer un utilisateur" size="lg">
         <div className="space-y-5">
@@ -343,6 +369,47 @@ export default function UserManager() {
                 />
               ))}
             </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-2">Vues autorisees</label>
+            {(role === 'admin' || role === 'manager') ? (
+              <p className="text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-2">
+                Les administrateurs et managers ont acces a toutes les vues.
+              </p>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {ALL_VIEW_PERMISSIONS.map(view => (
+                  <label
+                    key={view}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition ${
+                      createAllowedViews.includes(view)
+                        ? 'bg-cyan-50 border-cyan-300 text-cyan-800'
+                        : 'bg-slate-50 border-slate-200 text-slate-500 hover:border-slate-300'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={createAllowedViews.includes(view)}
+                      onChange={() => setCreateAllowedViews(prev =>
+                        prev.includes(view) ? prev.filter(v => v !== view) : [...prev, view]
+                      )}
+                      className="sr-only"
+                    />
+                    <div className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition ${
+                      createAllowedViews.includes(view) ? 'bg-cyan-500 border-cyan-500' : 'border-slate-300'
+                    }`}>
+                      {createAllowedViews.includes(view) && (
+                        <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                    </div>
+                    <span className="text-xs font-medium">{VIEW_PERMISSION_LABELS[view]}</span>
+                  </label>
+                ))}
+              </div>
+            )}
           </div>
 
           <div>

@@ -6,6 +6,20 @@ export type TicketPriority = 'low' | 'medium' | 'high' | 'urgent';
 
 export type EmailDirection = 'inbound' | 'outbound';
 
+export type ViewPermission = 'dashboard' | 'inbox' | 'contacts' | 'templates' | 'knowledge' | 'reports' | 'admin';
+
+export const ALL_VIEW_PERMISSIONS: ViewPermission[] = ['dashboard', 'inbox', 'contacts', 'templates', 'knowledge', 'reports', 'admin'];
+
+export const VIEW_PERMISSION_LABELS: Record<ViewPermission, string> = {
+  dashboard: 'Tableau de bord',
+  inbox: 'Boite de reception',
+  contacts: 'Annuaire',
+  templates: 'Modeles',
+  knowledge: 'Base de connaissances',
+  reports: 'Rapports',
+  admin: 'Administration',
+};
+
 export interface Profile {
   id: string;
   email: string;
@@ -14,6 +28,7 @@ export interface Profile {
   avatar_color: string;
   role: UserRole;
   is_active: boolean;
+  allowed_views: ViewPermission[];
   created_at: string;
   updated_at: string;
 }

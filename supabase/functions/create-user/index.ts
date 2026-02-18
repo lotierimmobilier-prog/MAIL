@@ -13,6 +13,7 @@ interface CreateUserRequest {
   fullName: string;
   role: 'admin' | 'manager' | 'agent' | 'readonly';
   avatarColor?: string;
+  allowedViews?: string[];
   mailboxPermissions?: Array<{
     mailboxId: string;
     canRead: boolean;
@@ -74,7 +75,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const body: CreateUserRequest = await req.json();
-    const { email, password, fullName, role, avatarColor, mailboxPermissions } = body;
+    const { email, password, fullName, role, avatarColor, allowedViews, mailboxPermissions } = body;
 
     if (!email || !password || !fullName || !role) {
       return new Response(
@@ -119,7 +120,8 @@ Deno.serve(async (req: Request) => {
         full_name: fullName,
         role: role,
         avatar_color: avatarColor || '#0891B2',
-        is_active: true
+        is_active: true,
+        allowed_views: allowedViews || ['dashboard', 'inbox', 'contacts', 'templates', 'knowledge', 'reports', 'admin']
       })
       .eq("id", newUser.user.id);
 

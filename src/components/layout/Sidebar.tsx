@@ -6,7 +6,7 @@ import {
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
-import type { Mailbox } from '../../lib/types';
+import type { Mailbox, ViewPermission } from '../../lib/types';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -17,18 +17,18 @@ interface SidebarProps {
   onCloseMobile?: () => void;
 }
 
-const navItems = [
-  { to: '/', icon: LayoutDashboard, label: 'Tableau de bord' },
-  { to: '/inbox', icon: Inbox, label: 'Boîte de réception' },
-  { to: '/contacts', icon: Users, label: 'Annuaire' },
-  { to: '/templates', icon: FileText, label: 'Modèles' },
-  { to: '/knowledge', icon: BookOpen, label: 'Base de connaissances' },
-  { to: '/reports', icon: BarChart3, label: 'Rapports' },
-  { to: '/admin', icon: Settings, label: 'Admin' },
+const navItems: { to: string; icon: typeof LayoutDashboard; label: string; view: ViewPermission }[] = [
+  { to: '/', icon: LayoutDashboard, label: 'Tableau de bord', view: 'dashboard' },
+  { to: '/inbox', icon: Inbox, label: 'Boîte de réception', view: 'inbox' },
+  { to: '/contacts', icon: Users, label: 'Annuaire', view: 'contacts' },
+  { to: '/templates', icon: FileText, label: 'Modèles', view: 'templates' },
+  { to: '/knowledge', icon: BookOpen, label: 'Base de connaissances', view: 'knowledge' },
+  { to: '/reports', icon: BarChart3, label: 'Rapports', view: 'reports' },
+  { to: '/admin', icon: Settings, label: 'Admin', view: 'admin' },
 ];
 
 export default function Sidebar({ collapsed, onToggle, onCompose, mobileOpen, isMobile, onCloseMobile }: SidebarProps) {
-  const { signOut } = useAuth();
+  const { signOut, hasView, userFullName, userRole } = useAuth();
   const [mailboxes, setMailboxes] = useState<Mailbox[]>([]);
   const [showMailboxes, setShowMailboxes] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -90,7 +90,7 @@ export default function Sidebar({ collapsed, onToggle, onCompose, mobileOpen, is
       </div>
 
       <nav className="flex-1 py-2 px-2 space-y-1 overflow-y-auto">
-        {navItems.map((item, index) => (
+        {navItems.filter(item => hasView(item.view)).map((item) => (
           <div key={item.to}>
             <NavLink
               to={item.to}
@@ -155,8 +155,8 @@ export default function Sidebar({ collapsed, onToggle, onCompose, mobileOpen, is
       <div className="px-2 py-3 border-t border-slate-800 space-y-1">
         {!collapsed && (
           <div className="px-3 py-2 mb-1">
-            <p className="text-sm font-medium text-slate-200 truncate">Administrateur</p>
-            <p className="text-xs text-slate-500">Admin</p>
+            <p className="text-sm font-medium text-slate-200 truncate">{userFullName || 'Utilisateur'}</p>
+            <p className="text-xs text-slate-500 capitalize">{userRole || ''}</p>
           </div>
         )}
         <button

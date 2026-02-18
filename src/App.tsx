@@ -13,11 +13,19 @@ import ContactsView from './components/contacts/ContactsView';
 import LoadingSpinner from './components/ui/LoadingSpinner';
 import { useMailboxSync } from './hooks/useMailboxSync';
 import type { ReactNode } from 'react';
+import type { ViewPermission } from './lib/types';
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const { authenticated, loading } = useAuth();
   if (loading) return <LoadingSpinner message="Chargement..." />;
   if (!authenticated) return <Navigate to="/login" replace />;
+  return <>{children}</>;
+}
+
+function ViewGuard({ view, children }: { view: ViewPermission; children: ReactNode }) {
+  const { hasView, loading } = useAuth();
+  if (loading) return <LoadingSpinner message="Chargement..." />;
+  if (!hasView(view)) return <Navigate to="/" replace />;
   return <>{children}</>;
 }
 
@@ -48,14 +56,14 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       >
-        <Route index element={<DashboardView />} />
-        <Route path="inbox" element={<InboxView />} />
-        <Route path="inbox/:id" element={<TicketDetailView />} />
-        <Route path="contacts" element={<ContactsView />} />
-        <Route path="templates" element={<TemplateLibraryView />} />
-        <Route path="knowledge" element={<KnowledgeBaseManager />} />
-        <Route path="reports" element={<ReportsView />} />
-        <Route path="admin" element={<AdminView />} />
+        <Route index element={<ViewGuard view="dashboard"><DashboardView /></ViewGuard>} />
+        <Route path="inbox" element={<ViewGuard view="inbox"><InboxView /></ViewGuard>} />
+        <Route path="inbox/:id" element={<ViewGuard view="inbox"><TicketDetailView /></ViewGuard>} />
+        <Route path="contacts" element={<ViewGuard view="contacts"><ContactsView /></ViewGuard>} />
+        <Route path="templates" element={<ViewGuard view="templates"><TemplateLibraryView /></ViewGuard>} />
+        <Route path="knowledge" element={<ViewGuard view="knowledge"><KnowledgeBaseManager /></ViewGuard>} />
+        <Route path="reports" element={<ViewGuard view="reports"><ReportsView /></ViewGuard>} />
+        <Route path="admin" element={<ViewGuard view="admin"><AdminView /></ViewGuard>} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

@@ -1,7 +1,8 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 import { supabase } from '../lib/supabase';
 import type { User, Session } from '@supabase/supabase-js';
-import type { UserRole } from '../lib/types';
+import type { UserRole, ViewPermission } from '../lib/types';
+import { ALL_VIEW_PERMISSIONS } from '../lib/types';
 
 interface AuthContextType {
   authenticated: boolean;
@@ -9,9 +10,12 @@ interface AuthContextType {
   user: User | null;
   session: Session | null;
   userRole: UserRole | null;
+  userFullName: string;
   isAdmin: boolean;
   isManager: boolean;
   canManage: boolean;
+  allowedViews: ViewPermission[];
+  hasView: (view: ViewPermission) => boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
 }
@@ -22,6 +26,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [userRole, setUserRole] = useState<UserRole | null>(null);
+  const [userFullName, setUserFullName] = useState('');
+  const [allowedViews, setAllowedViews] = useState<ViewPermission[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -57,13 +63,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const { data: profile, error } = await supabase
         .from('profiles')
-        .select('role, is_active')
+        .select('role, is_active, allowed_views, full_name')
         .eq('id', userId)
         .maybeSingle();
 
       if (error) {
         console.error('Error loading profile:', error);
         setUserRole('agent');
+        setAllowedViews([...ALL_VIEW_PERMISSIONS]);
         setLoading(false);
         return;
       }
@@ -76,13 +83,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setSession(null);
         } else {
           setUserRole(profile.role as UserRole);
+          setUserFullName(profile.full_name || '');
+          const views = (profile.allowed_views as ViewPermission[]) || [...ALL_VIEW_PERMISSIONS];
+          setAllowedViews(views);
         }
       } else {
         setUserRole('agent');
+        setAllowedViews([...ALL_VIEW_PERMISSIONS]);
       }
     } catch (err) {
       console.error('Error loading profile:', err);
       setUserRole('agent');
+      setAllowedViews([...ALL_VIEW_PERMISSIONS]);
     } finally {
       setLoading(false);
     }
@@ -129,6 +141,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const isManager = userRole === 'manager' || isAdmin;
   const canManage = isManager || isAdmin;
 
+  function hasView(view: ViewPermission): boolean {
+    if (isAdmin || isManager) return true;
+    return allowedViews.includes(view);
+  }
+
   return (
     <AuthContext.Provider
       value={{
@@ -137,9 +154,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user,
         session,
         userRole,
+        userFullName,
         isAdmin,
         isManager,
         canManage,
+        allowedViews,
+        hasView,
         signIn,
         signOut,
       }}
