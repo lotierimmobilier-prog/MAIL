@@ -81,13 +81,16 @@ function parseCsvLine(line: string): string[] {
 
 export default function CsvImportModal({ onClose, onImported }: CsvImportModalProps) {
   const [file, setFile] = useState<File | null>(null);
+  const [allLines, setAllLines] = useState<string[]>([]);
   const [preview, setPreview] = useState<ParsedRow[]>([]);
   const [headers, setHeaders] = useState<string[]>([]);
   const [mapping, setMapping] = useState<Record<string, string>>({});
   const [importing, setImporting] = useState(false);
+  const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [result, setResult] = useState<{ imported: number; skipped: number; errors: number } | null>(null);
   const [step, setStep] = useState<'upload' | 'preview' | 'done'>('upload');
   const fileRef = useRef<HTMLInputElement>(null);
+  const abortRef = useRef(false);
 
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
@@ -102,6 +105,8 @@ export default function CsvImportModal({ onClose, onImported }: CsvImportModalPr
         alert('Le fichier CSV doit contenir au moins un en-tete et une ligne de donnees');
         return;
       }
+
+      setAllLines(lines);
 
       const headerLine = parseCsvLine(lines[0]);
       setHeaders(headerLine);
@@ -148,60 +153,75 @@ export default function CsvImportModal({ onClose, onImported }: CsvImportModalPr
   }
 
   async function handleImport() {
-    if (!file) return;
+    if (!file || allLines.length < 2) return;
     setImporting(true);
+    abortRef.current = false;
 
-    const reader = new FileReader();
-    reader.onload = async (ev) => {
-      const text = ev.target?.result as string;
-      const lines = text.split(/\r?\n/).filter(l => l.trim());
-      const allRows: ParsedRow[] = [];
+    const allRows: ParsedRow[] = [];
+    for (let i = 1; i < allLines.length; i++) {
+      const cols = parseCsvLine(allLines[i]);
+      const row = applyMapping(cols, mapping);
+      if (row.email && row.email.includes('@')) {
+        allRows.push(row);
+      }
+    }
 
-      for (let i = 1; i < lines.length; i++) {
-        const cols = parseCsvLine(lines[i]);
-        const row = applyMapping(cols, mapping);
-        if (row.email && row.email.includes('@')) {
-          allRows.push(row);
+    const total = allRows.length;
+    setProgress({ current: 0, total });
+
+    let imported = 0;
+    let skipped = 0;
+    let errors = 0;
+    const BATCH_SIZE = 10;
+
+    for (let i = 0; i < allRows.length; i += BATCH_SIZE) {
+      if (abortRef.current) break;
+
+      const batch = allRows.slice(i, i + BATCH_SIZE).map(r => ({
+        email: r.email.toLowerCase().trim(),
+        first_name: r.first_name,
+        last_name: r.last_name,
+        company: r.company,
+        phone: r.phone,
+        notes: r.notes,
+        source: 'csv_import' as const,
+      }));
+
+      const { data, error } = await supabase
+        .from('contacts')
+        .upsert(batch, {
+          onConflict: 'email',
+          ignoreDuplicates: false,
+        })
+        .select('id');
+
+      if (error) {
+        for (const row of batch) {
+          const { data: singleData, error: singleError } = await supabase
+            .from('contacts')
+            .upsert([row], {
+              onConflict: 'email',
+              ignoreDuplicates: false,
+            })
+            .select('id');
+
+          if (singleError) {
+            errors++;
+          } else {
+            imported += singleData?.length || 0;
+          }
         }
+      } else {
+        imported += data?.length || 0;
+        skipped += batch.length - (data?.length || 0);
       }
 
-      let imported = 0;
-      let skipped = 0;
-      let errors = 0;
-      const batchSize = 50;
+      setProgress({ current: Math.min(i + BATCH_SIZE, total), total });
+    }
 
-      for (let i = 0; i < allRows.length; i += batchSize) {
-        const batch = allRows.slice(i, i + batchSize).map(r => ({
-          email: r.email.toLowerCase().trim(),
-          first_name: r.first_name,
-          last_name: r.last_name,
-          company: r.company,
-          phone: r.phone,
-          notes: r.notes,
-          source: 'csv_import' as const,
-        }));
-
-        const { data, error } = await supabase
-          .from('contacts')
-          .upsert(batch, {
-            onConflict: 'email',
-            ignoreDuplicates: false,
-          })
-          .select('id');
-
-        if (error) {
-          errors += batch.length;
-        } else {
-          imported += data?.length || 0;
-          skipped += batch.length - (data?.length || 0);
-        }
-      }
-
-      setResult({ imported, skipped, errors });
-      setStep('done');
-      setImporting(false);
-    };
-    reader.readAsText(file, 'UTF-8');
+    setResult({ imported, skipped, errors });
+    setStep('done');
+    setImporting(false);
   }
 
   return (
@@ -352,23 +372,38 @@ export default function CsvImportModal({ onClose, onImported }: CsvImportModalPr
                 Annuler
               </button>
               {step === 'preview' && (
-                <button
-                  onClick={handleImport}
-                  disabled={importing || !Object.values(mapping).includes('email')}
-                  className="flex items-center gap-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-medium rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {importing ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Import en cours...
-                    </>
-                  ) : (
-                    <>
-                      <Upload className="w-4 h-4" />
-                      Importer
-                    </>
+                <div className="flex items-center gap-3">
+                  {importing && progress.total > 0 && (
+                    <div className="flex items-center gap-2 min-w-[180px]">
+                      <div className="flex-1 h-2 bg-slate-200 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-cyan-500 rounded-full transition-all duration-300"
+                          style={{ width: `${Math.round((progress.current / progress.total) * 100)}%` }}
+                        />
+                      </div>
+                      <span className="text-xs text-slate-500 whitespace-nowrap">
+                        {progress.current}/{progress.total}
+                      </span>
+                    </div>
                   )}
-                </button>
+                  <button
+                    onClick={handleImport}
+                    disabled={importing || !Object.values(mapping).includes('email')}
+                    className="flex items-center gap-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-medium rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {importing ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Import en cours...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-4 h-4" />
+                        Importer
+                      </>
+                    )}
+                  </button>
+                </div>
               )}
             </>
           )}
