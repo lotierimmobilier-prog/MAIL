@@ -3,7 +3,7 @@ import { useState, useMemo } from 'react';
 import { ArrowDownLeft, ArrowUpRight, Paperclip, Code, FileText, StickyNote } from 'lucide-react';
 import type { Email, InternalNote } from '../../lib/types';
 import { formatFileSize } from '../../lib/constants';
-import { cleanEmailHtml, extractTextFromHtml } from '../../lib/emailUtils';
+import { cleanEmailHtml, extractTextFromHtml, fixUtf8Encoding } from '../../lib/emailUtils';
 
 interface ConversationThreadProps {
   emails: Email[];
@@ -170,7 +170,7 @@ export default function ConversationThread({ emails, notes = [] }: ConversationT
                 />
               ) : (
                 <pre className="text-sm text-slate-700 whitespace-pre-wrap font-sans leading-relaxed">
-                  {email.body_text || 'Aucun contenu'}
+                  {fixUtf8Encoding(email.body_text || '') || 'Aucun contenu'}
                 </pre>
               )}
             </div>

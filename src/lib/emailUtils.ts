@@ -1,6 +1,6 @@
 import DOMPurify from 'dompurify';
 
-function fixUtf8Encoding(text: string): string {
+export function fixUtf8Encoding(text: string): string {
   if (!text) return '';
 
   const mojibakeSignatures = ['Ã©', 'Ã¨', 'Ã§', 'Ãª', 'Ã´', 'Ã®', 'Ã»', 'Ã¹', 'Ã¯', 'Ã«', 'Ã¢', 'â€™', 'â€œ', 'â€"', 'Â°', 'Â«', 'Â»', 'â‚¬'];
