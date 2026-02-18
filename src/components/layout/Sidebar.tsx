@@ -66,7 +66,7 @@ export default function Sidebar({ collapsed, onToggle, onCompose }: SidebarProps
         <div className="w-8 h-8 rounded-lg bg-cyan-500 flex items-center justify-center shrink-0">
           <Mail className="w-4 h-4 text-white" />
         </div>
-        {!collapsed && <span className="font-bold text-lg tracking-tight">EmailOps</span>}
+        {!collapsed && <span className="font-bold text-lg tracking-tight">LotierM@il</span>}
       </div>
 
       <div className="px-3 pt-4 pb-2">

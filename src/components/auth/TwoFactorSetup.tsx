@@ -26,7 +26,7 @@ export default function TwoFactorSetup({ isOpen, onClose, onSuccess }: TwoFactor
     try {
       const { data, error: enrollError } = await supabase.auth.mfa.enroll({
         factorType: 'totp',
-        friendlyName: 'EmailOps App'
+        friendlyName: 'LotierM@il'
       });
 
       if (enrollError) throw enrollError;
