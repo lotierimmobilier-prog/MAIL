@@ -1,50 +1,42 @@
 import DOMPurify from 'dompurify';
 
-/**
- * Fix common UTF-8 encoding issues
- */
 function fixUtf8Encoding(text: string): string {
   if (!text) return '';
 
-  // Common UTF-8 mojibake patterns (using array to handle duplicates)
-  const replacements: Array<[string, string]> = [
-    ['Ã©', 'é'],
-    ['Ã¨', 'è'],
-    ['Ãª', 'ê'],
-    ['Ã§', 'ç'],
-    ['Ã ', 'à'],
-    ['Ã¢', 'â'],
-    ['Ã´', 'ô'],
-    ['Ã®', 'î'],
-    ['Ã¯', 'ï'],
-    ['Ã¹', 'ù'],
-    ['Ã»', 'û'],
-    ['Ã«', 'ë'],
-    ['Å"', 'œ'],
-    ['Ã', 'À'],
-    ['Ã‰', 'É'],
-    ['Ãˆ', 'È'],
-    ['Ãš', 'Ê'],
-    ['Ã‡', 'Ç'],
-    ['â€™', "'"],
-    ['â€˜', "'"],
-    ['â€œ', '"'],
-    ['â€', '"'],
-    ['â€"', '—'],
-    ['â€"', '–'],
-    ['â€¦', '...'],
-    ['Â©', '©'],
-    ['Â®', '®'],
-    ['Â°', '°'],
-    ['Â', ''],
-  ];
+  const hasMojibake = /[\xC2-\xDF][\x80-\xBF]|[\xE0-\xEF][\x80-\xBF]{2}/.test(text) &&
+    (text.includes('\xC3\xA9') || text.includes('\xC3\xA8') || text.includes('\xC3\xA0') ||
+     text.includes('\xC3\xA7') || text.includes('\xC3\xAA') || text.includes('\xC3\xB4') ||
+     text.includes('\xC3\xAE') || text.includes('\xC3\xBB') || text.includes('\xC3\xB9') ||
+     text.includes('\xC3\xAF') || text.includes('\xC3\xAB') || text.includes('\xC3\xA2') ||
+     text.includes('Ã©') || text.includes('Ã¨') || text.includes('Ã ') ||
+     text.includes('Ã§') || text.includes('Ãª') || text.includes('Ã´') ||
+     text.includes('Ã®') || text.includes('Ã»') || text.includes('Ã¹') ||
+     text.includes('Ã¯') || text.includes('Ã«') || text.includes('Ã¢') ||
+     text.includes('â€™') || text.includes('â€œ') || text.includes('â€"'));
 
-  let fixed = text;
-  for (const [wrong, correct] of replacements) {
-    fixed = fixed.replace(new RegExp(wrong.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), correct);
+  if (hasMojibake) {
+    try {
+      const fixed = decodeURIComponent(escape(text));
+      if (fixed && !fixed.includes('\uFFFD')) {
+        return fixed;
+      }
+    } catch {
+    }
+
+    try {
+      const bytes = new Uint8Array(text.length);
+      for (let i = 0; i < text.length; i++) {
+        bytes[i] = text.charCodeAt(i) & 0xFF;
+      }
+      const decoded = new TextDecoder('utf-8').decode(bytes);
+      if (decoded && !decoded.includes('\uFFFD')) {
+        return decoded;
+      }
+    } catch {
+    }
   }
 
-  return fixed;
+  return text;
 }
 
 /**

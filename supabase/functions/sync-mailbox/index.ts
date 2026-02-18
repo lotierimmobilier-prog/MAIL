@@ -331,6 +331,51 @@ interface ParsedAttachment {
   data: Uint8Array;
 }
 
+function extractCharset(headerBlock: string): string {
+  const m = headerBlock.match(/charset="?([^";\s\r\n]+)"?/i);
+  return m ? m[1].trim().toLowerCase() : "utf-8";
+}
+
+function decodeTransferEncoding(body: string, encoding: string): Uint8Array {
+  if (encoding === "base64") {
+    const b64 = body.replace(/\s/g, "");
+    return Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+  }
+  if (encoding === "quoted-printable") {
+    const cleaned = body.replace(/=\r\n/g, "");
+    const bytes: number[] = [];
+    for (let i = 0; i < cleaned.length; i++) {
+      if (cleaned[i] === "=" && i + 2 < cleaned.length) {
+        const hex = cleaned.substring(i + 1, i + 3);
+        if (/^[0-9A-Fa-f]{2}$/.test(hex)) {
+          bytes.push(parseInt(hex, 16));
+          i += 2;
+          continue;
+        }
+      }
+      bytes.push(cleaned.charCodeAt(i));
+    }
+    return new Uint8Array(bytes);
+  }
+  return new Uint8Array(Array.from(body, c => c.charCodeAt(0)));
+}
+
+function decodePartBody(body: string, headerBlock: string): string {
+  const te = headerBlock.match(/content-transfer-encoding:\s*(\S+)/i);
+  const encoding = te ? te[1].toLowerCase() : "7bit";
+  const charset = extractCharset(headerBlock);
+  const rawBytes = decodeTransferEncoding(body, encoding);
+  try {
+    return new TextDecoder(charset).decode(rawBytes);
+  } catch {
+    try {
+      return new TextDecoder("utf-8").decode(rawBytes);
+    } catch {
+      return body;
+    }
+  }
+}
+
 function extractBodyAndAttachments(raw: string, depth = 0): { text: string; html: string; attachments: ParsedAttachment[] } {
   if (depth > 10) return { text: "", html: "", attachments: [] };
   const bm = raw.match(/content-type:\s*multipart\/[^;]*;\s*boundary="?([^\s";]+)"?/i);
@@ -341,10 +386,11 @@ function extractBodyAndAttachments(raw: string, depth = 0): { text: string; html
     for (const part of parts) {
       const si = part.indexOf("\r\n\r\n");
       if (si === -1) continue;
-      const ph = part.substring(0, si).toLowerCase();
-      let pb = part.substring(si + 4);
+      const ph = part.substring(0, si);
+      const phLower = ph.toLowerCase();
+      const pb = part.substring(si + 4);
 
-      if (ph.match(/multipart\//i)) {
+      if (phLower.match(/multipart\//i)) {
         const n = extractBodyAndAttachments(part, depth + 1);
         if (n.text) text = text || n.text;
         if (n.html) html = html || n.html;
@@ -352,28 +398,19 @@ function extractBodyAndAttachments(raw: string, depth = 0): { text: string; html
         continue;
       }
 
-      const cd = ph.match(/content-disposition:\s*attachment[^;]*(?:;\s*filename="?([^";\r\n]+)"?)?/i);
-      const fn = ph.match(/name="?([^";\r\n]+)"?/i);
-      const ct = ph.match(/content-type:\s*([^;\r\n]+)/i);
+      const cd = phLower.match(/content-disposition:\s*attachment[^;]*(?:;\s*filename="?([^";\r\n]+)"?)?/i);
+      const fn = phLower.match(/name="?([^";\r\n]+)"?/i);
+      const ct = phLower.match(/content-type:\s*([^;\r\n]+)/i);
 
-      if (cd || (fn && !ph.includes("text/html") && !ph.includes("text/plain"))) {
+      if (cd || (fn && !phLower.includes("text/html") && !phLower.includes("text/plain"))) {
         const filename = (cd && cd[1]) || (fn && fn[1]) || "attachment";
         const contentType = (ct && ct[1].trim()) || "application/octet-stream";
 
-        const te = ph.match(/content-transfer-encoding:\s*(\S+)/);
-        let data: Uint8Array;
+        const te = phLower.match(/content-transfer-encoding:\s*(\S+)/);
+        const encoding = te ? te[1].toLowerCase() : "7bit";
 
         try {
-          if (te && te[1] === "base64") {
-            const b64 = pb.replace(/\s/g, "");
-            data = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-          } else if (te && te[1] === "quoted-printable") {
-            const decoded = pb.replace(/=\r\n/g, "").replace(/=([0-9A-Fa-f]{2})/g, (_, h: string) => String.fromCharCode(parseInt(h, 16)));
-            data = new TextEncoder().encode(decoded);
-          } else {
-            data = new TextEncoder().encode(pb);
-          }
-
+          const data = decodeTransferEncoding(pb, encoding);
           attachments.push({
             filename: decHdr(filename).trim(),
             content_type: contentType,
@@ -386,18 +423,17 @@ function extractBodyAndAttachments(raw: string, depth = 0): { text: string; html
         continue;
       }
 
-      const te = ph.match(/content-transfer-encoding:\s*(\S+)/);
-      if (te) {
-        if (te[1] === "base64") { try { pb = new TextDecoder().decode(Uint8Array.from(atob(pb.replace(/\s/g, "")), c => c.charCodeAt(0))); } catch {} }
-        else if (te[1] === "quoted-printable") { pb = pb.replace(/=\r\n/g, "").replace(/=([0-9A-Fa-f]{2})/g, (_, h: string) => String.fromCharCode(parseInt(h, 16))); }
-      }
-      if (ph.includes("text/html") && !html) html = pb.trim();
-      else if (ph.includes("text/plain") && !text) text = pb.trim();
+      const decoded = decodePartBody(pb, phLower);
+      if (phLower.includes("text/html") && !html) html = decoded.trim();
+      else if (phLower.includes("text/plain") && !text) text = decoded.trim();
     }
     return { text, html, attachments };
   }
   const si = raw.indexOf("\r\n\r\n");
-  return { text: si >= 0 ? raw.substring(si + 4).trim() : "", html: "", attachments: [] };
+  const headerPart = si >= 0 ? raw.substring(0, si).toLowerCase() : "";
+  const bodyPart = si >= 0 ? raw.substring(si + 4) : "";
+  const decoded = headerPart ? decodePartBody(bodyPart, headerPart) : bodyPart;
+  return { text: decoded.trim(), html: "", attachments: [] };
 }
 
 class Imap {

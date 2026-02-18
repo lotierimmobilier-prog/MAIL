@@ -58,6 +58,51 @@ function parseHeaders(raw: string): Record<string, string> {
   return h;
 }
 
+function extractCharset(headerBlock: string): string {
+  const m = headerBlock.match(/charset="?([^";\s\r\n]+)"?/i);
+  return m ? m[1].trim().toLowerCase() : "utf-8";
+}
+
+function decodeTransferEncoding(body: string, encoding: string): Uint8Array {
+  if (encoding === "base64") {
+    const b64 = body.replace(/\s/g, "");
+    return Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+  }
+  if (encoding === "quoted-printable") {
+    const cleaned = body.replace(/=\r\n/g, "");
+    const bytes: number[] = [];
+    for (let i = 0; i < cleaned.length; i++) {
+      if (cleaned[i] === "=" && i + 2 < cleaned.length) {
+        const hex = cleaned.substring(i + 1, i + 3);
+        if (/^[0-9A-Fa-f]{2}$/.test(hex)) {
+          bytes.push(parseInt(hex, 16));
+          i += 2;
+          continue;
+        }
+      }
+      bytes.push(cleaned.charCodeAt(i));
+    }
+    return new Uint8Array(bytes);
+  }
+  return new Uint8Array(Array.from(body, c => c.charCodeAt(0)));
+}
+
+function decodePartBody(body: string, headerBlock: string): string {
+  const te = headerBlock.match(/content-transfer-encoding:\s*(\S+)/i);
+  const encoding = te ? te[1].toLowerCase() : "7bit";
+  const charset = extractCharset(headerBlock);
+  const rawBytes = decodeTransferEncoding(body, encoding);
+  try {
+    return new TextDecoder(charset).decode(rawBytes);
+  } catch {
+    try {
+      return new TextDecoder("utf-8").decode(rawBytes);
+    } catch {
+      return body;
+    }
+  }
+}
+
 function extractBody(raw: string, depth = 0): { text: string; html: string } {
   if (depth > 10) return { text: "", html: "" };
   const bm = raw.match(/content-type:\s*multipart\/[^;]*;\s*boundary="?([^\s";]+)"?/i);
@@ -68,30 +113,25 @@ function extractBody(raw: string, depth = 0): { text: string; html: string } {
       const si = part.indexOf("\r\n\r\n");
       if (si === -1) continue;
       const ph = part.substring(0, si).toLowerCase();
-      let pb = part.substring(si + 4);
+      const pb = part.substring(si + 4);
       if (ph.match(/multipart\//i)) {
         const n = extractBody(part, depth + 1);
         if (n.text) text = text || n.text;
         if (n.html) html = html || n.html;
         continue;
       }
-      const te = ph.match(/content-transfer-encoding:\s*(\S+)/);
-      if (te) {
-        if (te[1] === "base64") {
-          try {
-            pb = new TextDecoder().decode(Uint8Array.from(atob(pb.replace(/\s/g, "")), c => c.charCodeAt(0)));
-          } catch {}
-        } else if (te[1] === "quoted-printable") {
-          pb = pb.replace(/=\r\n/g, "").replace(/=([0-9A-Fa-f]{2})/g, (_, h: string) => String.fromCharCode(parseInt(h, 16)));
-        }
-      }
-      if (ph.includes("text/html") && !html) html = pb.trim();
-      else if (ph.includes("text/plain") && !text) text = pb.trim();
+
+      const decoded = decodePartBody(pb, ph);
+      if (ph.includes("text/html") && !html) html = decoded.trim();
+      else if (ph.includes("text/plain") && !text) text = decoded.trim();
     }
     return { text, html };
   }
   const si = raw.indexOf("\r\n\r\n");
-  return { text: si >= 0 ? raw.substring(si + 4).trim() : "", html: "" };
+  const headerPart = si >= 0 ? raw.substring(0, si).toLowerCase() : "";
+  const bodyPart = si >= 0 ? raw.substring(si + 4) : "";
+  const decoded = headerPart ? decodePartBody(bodyPart, headerPart) : bodyPart;
+  return { text: decoded.trim(), html: "" };
 }
 
 class Imap {
