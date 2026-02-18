@@ -3,40 +3,54 @@ import DOMPurify from 'dompurify';
 function fixUtf8Encoding(text: string): string {
   if (!text) return '';
 
-  const hasMojibake = /[\xC2-\xDF][\x80-\xBF]|[\xE0-\xEF][\x80-\xBF]{2}/.test(text) &&
-    (text.includes('\xC3\xA9') || text.includes('\xC3\xA8') || text.includes('\xC3\xA0') ||
-     text.includes('\xC3\xA7') || text.includes('\xC3\xAA') || text.includes('\xC3\xB4') ||
-     text.includes('\xC3\xAE') || text.includes('\xC3\xBB') || text.includes('\xC3\xB9') ||
-     text.includes('\xC3\xAF') || text.includes('\xC3\xAB') || text.includes('\xC3\xA2') ||
-     text.includes('Ã©') || text.includes('Ã¨') || text.includes('Ã ') ||
-     text.includes('Ã§') || text.includes('Ãª') || text.includes('Ã´') ||
-     text.includes('Ã®') || text.includes('Ã»') || text.includes('Ã¹') ||
-     text.includes('Ã¯') || text.includes('Ã«') || text.includes('Ã¢') ||
-     text.includes('â€™') || text.includes('â€œ') || text.includes('â€"'));
+  const mojibakeSignatures = ['Ã©', 'Ã¨', 'Ã§', 'Ãª', 'Ã´', 'Ã®', 'Ã»', 'Ã¹', 'Ã¯', 'Ã«', 'Ã¢', 'â€™', 'â€œ', 'â€"', 'Â°', 'Â«', 'Â»', 'â‚¬'];
+  const hasMojibake = mojibakeSignatures.some(p => text.includes(p));
+  if (!hasMojibake) return text;
 
-  if (hasMojibake) {
-    try {
-      const fixed = decodeURIComponent(escape(text));
-      if (fixed && !fixed.includes('\uFFFD')) {
-        return fixed;
-      }
-    } catch {
+  try {
+    const bytes = new Uint8Array(text.length);
+    let allLatin1 = true;
+    for (let i = 0; i < text.length; i++) {
+      const code = text.charCodeAt(i);
+      if (code > 255) { allLatin1 = false; break; }
+      bytes[i] = code;
     }
+    if (allLatin1) {
+      const decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+      if (decoded && !decoded.includes('\uFFFD')) return decoded;
+    }
+  } catch {}
 
-    try {
-      const bytes = new Uint8Array(text.length);
-      for (let i = 0; i < text.length; i++) {
-        bytes[i] = text.charCodeAt(i) & 0xFF;
-      }
-      const decoded = new TextDecoder('utf-8').decode(bytes);
-      if (decoded && !decoded.includes('\uFFFD')) {
-        return decoded;
-      }
-    } catch {
-    }
+  try {
+    const fixed = decodeURIComponent(escape(text));
+    if (fixed && !fixed.includes('\uFFFD')) return fixed;
+  } catch {}
+
+  const map: [string, string][] = [
+    ['Ã©', 'é'], ['Ã¨', 'è'], ['Ãª', 'ê'], ['Ã«', 'ë'],
+    ['Ã\xa0', 'à'], ['Ã¢', 'â'], ['Ã¤', 'ä'],
+    ['Ã¹', 'ù'], ['Ã»', 'û'], ['Ã¼', 'ü'],
+    ['Ã®', 'î'], ['Ã¯', 'ï'], ['Ã´', 'ô'], ['Ã¶', 'ö'],
+    ['Ã§', 'ç'], ['Ã±', 'ñ'], ['Ã¿', 'ÿ'],
+    ['Ã\x89', 'É'], ['Ã\x88', 'È'], ['Ã\x8a', 'Ê'], ['Ã\x8b', 'Ë'],
+    ['Ã€', 'À'], ['Ã\x82', 'Â'], ['Ã\x84', 'Ä'],
+    ['Ã\x99', 'Ù'], ['Ã\x9b', 'Û'], ['Ãœ', 'Ü'],
+    ['Ã\x8e', 'Î'], ['Ã\x8f', 'Ï'], ['Ã\x94', 'Ô'], ['Ã\x96', 'Ö'],
+    ['Ã\x87', 'Ç'], ['Ã\x91', 'Ñ'], ['Ã\x9f', 'ß'],
+    ['â€™', '\u2019'], ['â€˜', '\u2018'],
+    ['â€œ', '\u201C'], ['â€\x9d', '\u201D'],
+    ['â€"', '\u2014'], ['â€"', '\u2013'],
+    ['â€¢', '\u2022'], ['â€¦', '\u2026'],
+    ['Â°', '°'], ['Â«', '«'], ['Â»', '»'],
+    ['Â·', '·'], ['Â©', '©'], ['Â®', '®'],
+    ['â‚¬', '€'], ['Å"', 'œ'], ['Å\x92', 'Œ'],
+    ['Ã\xa0', 'à'], ['Â\xa0', '\u00A0'],
+  ];
+  let result = text;
+  for (const [from, to] of map) {
+    result = result.split(from).join(to);
   }
-
-  return text;
+  return result;
 }
 
 /**

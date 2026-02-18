@@ -451,9 +451,8 @@ function extractBodyAndAttachments(raw: string, depth = 0): { text: string; html
 class Imap {
   private c: Deno.TlsConn | null = null;
   private t = 0;
-  private buf = "";
+  private rawBuf = new Uint8Array(0);
   private enc = new TextEncoder();
-  private dec = new TextDecoder();
 
   async open(host: string, port: number) {
     const conn = await Promise.race([
@@ -463,11 +462,11 @@ class Imap {
       )
     ]);
     this.c = conn;
-    const g = await this.line();
+    const g = await this.lineStr();
     if (!g.includes("OK") && !g.startsWith("*")) throw new Error("Bad greeting: " + g);
   }
 
-  private async rd() {
+  private async rdRaw() {
     const b = new Uint8Array(32768);
     const n = await Promise.race([
       this.c!.read(b),
@@ -476,15 +475,25 @@ class Imap {
       )
     ]);
     if (n === null) throw new Error("Connection closed");
-    this.buf += this.dec.decode(b.subarray(0, n));
+    const merged = new Uint8Array(this.rawBuf.length + n);
+    merged.set(this.rawBuf);
+    merged.set(b.subarray(0, n), this.rawBuf.length);
+    this.rawBuf = merged;
   }
 
-  private async line(): Promise<string> {
-    while (!this.buf.includes("\r\n")) await this.rd();
-    const i = this.buf.indexOf("\r\n");
-    const l = this.buf.substring(0, i);
-    this.buf = this.buf.substring(i + 2);
-    return l;
+  private findCRLF(): number {
+    for (let i = 0; i < this.rawBuf.length - 1; i++) {
+      if (this.rawBuf[i] === 0x0D && this.rawBuf[i + 1] === 0x0A) return i;
+    }
+    return -1;
+  }
+
+  private async lineStr(): Promise<string> {
+    while (this.findCRLF() === -1) await this.rdRaw();
+    const i = this.findCRLF();
+    const lineBytes = this.rawBuf.subarray(0, i);
+    this.rawBuf = this.rawBuf.slice(i + 2);
+    return new TextDecoder("ascii").decode(lineBytes);
   }
 
   private async cmd(c: string): Promise<string> {
@@ -492,7 +501,7 @@ class Imap {
     await this.wr(`${tag} ${c}\r\n`);
     let r = "";
     while (true) {
-      const l = await this.line();
+      const l = await this.lineStr();
       r += l + "\r\n";
       if (l.startsWith(`${tag} `)) {
         if (l.includes("NO") || l.includes("BAD")) throw new Error(l);
@@ -527,18 +536,57 @@ class Imap {
   async fetchUID(uid: number): Promise<string> {
     const tag = `A${++this.t}`;
     await this.wr(`${tag} UID FETCH ${uid} RFC822\r\n`);
+
+    const tagOk = this.enc.encode(`\r\n${tag} OK`);
+    const tagNo = this.enc.encode(`\r\n${tag} NO`);
+    const tagBad = this.enc.encode(`\r\n${tag} BAD`);
+
+    const containsBytes = (haystack: Uint8Array, needle: Uint8Array): boolean => {
+      for (let i = 0; i <= haystack.length - needle.length; i++) {
+        let found = true;
+        for (let j = 0; j < needle.length; j++) {
+          if (haystack[i + j] !== needle[j]) { found = false; break; }
+        }
+        if (found) return true;
+      }
+      return false;
+    };
+
     while (true) {
-      const has = this.buf.includes(`\r\n${tag} OK`) || this.buf.includes(`\r\n${tag} NO`) || this.buf.includes(`\r\n${tag} BAD`);
-      if (has) break;
-      await this.rd();
+      if (containsBytes(this.rawBuf, tagOk) || containsBytes(this.rawBuf, tagNo) || containsBytes(this.rawBuf, tagBad)) break;
+      await this.rdRaw();
     }
-    const lm = this.buf.match(/\{(\d+)\}\r\n/);
-    if (!lm) { this.buf = ""; return ""; }
+
+    const bufStr = new TextDecoder("ascii").decode(this.rawBuf);
+    const lm = bufStr.match(/\{(\d+)\}\r\n/);
+    if (!lm) { this.rawBuf = new Uint8Array(0); return ""; }
     const sz = parseInt(lm[1]);
-    const st = this.buf.indexOf(lm[0]) + lm[0].length;
-    const msg = this.buf.substring(st, st + sz);
-    const ti = this.buf.indexOf(`\r\n${tag} `, st + sz);
-    this.buf = ti >= 0 ? this.buf.substring(this.buf.indexOf("\r\n", ti + 2) + 2) : "";
+
+    const litStart = bufStr.indexOf(lm[0]) + lm[0].length;
+    let byteOffset = 0;
+    for (let i = 0; i < litStart && i < bufStr.length; i++) {
+      byteOffset++;
+    }
+
+    while (this.rawBuf.length < byteOffset + sz) {
+      await this.rdRaw();
+    }
+
+    const msgBytes = this.rawBuf.subarray(byteOffset, byteOffset + sz);
+    const msg = String.fromCharCode(...msgBytes);
+
+    const afterMsg = byteOffset + sz;
+    const remainder = new TextDecoder("ascii").decode(this.rawBuf.subarray(afterMsg));
+    const tagEndPattern = `\r\n${tag} `;
+    const ti = remainder.indexOf(tagEndPattern);
+    if (ti >= 0) {
+      const lineEnd = remainder.indexOf("\r\n", ti + 2);
+      const skipBytes = lineEnd >= 0 ? afterMsg + lineEnd + 2 : this.rawBuf.length;
+      this.rawBuf = this.rawBuf.slice(skipBytes);
+    } else {
+      this.rawBuf = new Uint8Array(0);
+    }
+
     return msg;
   }
 
