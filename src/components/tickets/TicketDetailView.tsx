@@ -4,38 +4,34 @@ import { ArrowLeft, Hash, Mail } from 'lucide-react';
 import Header from '../layout/Header';
 import ConversationThread from './ConversationThread';
 import TicketMetaPanel from './TicketMetaPanel';
-import AiInsightsPanel from './AiInsightsPanel';
 import AttachmentsPanel from './AttachmentsPanel';
 import InternalNotes from './InternalNotes';
 import DraftComposer from '../drafts/DraftComposer';
 import EmailComposer from '../email/EmailComposer';
 import AiResponseSuggestions from './AiResponseSuggestions';
-import EmailSummary from '../search/EmailSummary';
+import ContactHistorySummary from './ContactHistorySummary';
 import LoadingSpinner from '../ui/LoadingSpinner';
 import { supabase } from '../../lib/supabase';
-import type { Ticket, Email, Profile, Category, AiClassification, InternalNote, EmailTemplate, Attachment } from '../../lib/types';
+import type { Ticket, Email, Profile, Category, InternalNote, EmailTemplate, Attachment } from '../../lib/types';
 
 export default function TicketDetailView() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [emails, setEmails] = useState<Email[]>([]);
-  const [classification, setClassification] = useState<AiClassification | null>(null);
   const [notes, setNotes] = useState<InternalNote[]>([]);
   const [agents, setAgents] = useState<Profile[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [templates, setTemplates] = useState<EmailTemplate[]>([]);
   const [loading, setLoading] = useState(true);
-  const [classifying, setClassifying] = useState(false);
   const [composerOpen, setComposerOpen] = useState(false);
 
   const loadTicket = useCallback(async () => {
     if (!id) return;
 
-    const [ticketRes, emailRes, classRes, noteRes, agentRes, catRes, tmplRes] = await Promise.all([
+    const [ticketRes, emailRes, noteRes, agentRes, catRes, tmplRes] = await Promise.all([
       supabase.from('tickets').select('*, category:categories(*), assignee:profiles!tickets_assignee_id_fkey(*)').eq('id', id).maybeSingle(),
       supabase.from('emails').select('*, attachments(*)').eq('ticket_id', id).order('received_at', { ascending: true }),
-      supabase.from('ai_classifications').select('*').eq('ticket_id', id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
       supabase.from('internal_notes').select('*, author:profiles(full_name)').eq('ticket_id', id).order('created_at', { ascending: true }),
       supabase.from('profiles').select('*').in('role', ['admin', 'manager', 'agent']).eq('is_active', true),
       supabase.from('categories').select('*').order('name'),
@@ -44,7 +40,6 @@ export default function TicketDetailView() {
 
     if (ticketRes.data) setTicket(ticketRes.data);
     if (emailRes.data) setEmails(emailRes.data);
-    if (classRes.data) setClassification(classRes.data);
     if (noteRes.data) setNotes(noteRes.data);
     if (agentRes.data) setAgents(agentRes.data);
     if (catRes.data) setCategories(catRes.data);
@@ -78,45 +73,15 @@ export default function TicketDetailView() {
     return attachments;
   }, [emails]);
 
-  async function handleClassify() {
-    if (!ticket || emails.length === 0) return;
-    setClassifying(true);
-    try {
-      const latestEmail = emails[emails.length - 1];
-      const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/classify-email`;
-      const res = await fetch(apiUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email_id: latestEmail.id,
-          ticket_id: ticket.id,
-          subject: latestEmail.subject,
-          body: latestEmail.body_text || '',
-          from_address: latestEmail.from_address,
-          from_name: latestEmail.from_name,
-        }),
-      });
-      if (res.ok) {
-        await loadTicket();
-      }
-    } catch {
-      // Edge function may not be deployed yet
-    }
-    setClassifying(false);
-  }
-
   if (loading) return <LoadingSpinner />;
   if (!ticket) {
     return (
       <div className="min-h-screen">
         <Header title="Ticket introuvable" />
         <div className="p-6 text-center">
-          <p className="text-slate-500">Ce ticket n'existe pas ou vous n'y avez pas accès.</p>
+          <p className="text-slate-500">Ce ticket n'existe pas ou vous n'y avez pas acces.</p>
           <button onClick={() => navigate('/inbox')} className="mt-4 text-cyan-600 hover:text-cyan-700 text-sm font-medium">
-            Retour à la boîte de réception
+            Retour a la boite de reception
           </button>
         </div>
       </div>
@@ -145,20 +110,21 @@ export default function TicketDetailView() {
           <div className="xl:col-span-2 space-y-6">
             <ConversationThread emails={emails} notes={notes} />
 
-            {emails.length > 0 && emails[0] && (
-              <EmailSummary emailId={emails[0].id} />
-            )}
+            <ContactHistorySummary
+              contactEmail={ticket.contact_email}
+              contactName={ticket.contact_name}
+              currentTicketId={ticket.id}
+            />
 
             {emails.length > 0 && (
               <AiResponseSuggestions
                 ticketId={ticket.id}
-                onAccept={(response) => {
+                onAccept={() => {
                   setComposerOpen(true);
                 }}
                 onRegenerate={async () => {
-                  const lastEmail = emails[emails.length - 1];
                   try {
-                    const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/auto-generate-response`;
+                    const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/auto-generate-draft`;
                     await fetch(apiUrl, {
                       method: 'POST',
                       headers: {
@@ -167,8 +133,6 @@ export default function TicketDetailView() {
                       },
                       body: JSON.stringify({
                         ticket_id: ticket.id,
-                        email_id: lastEmail.id,
-                        email_content: lastEmail.body_plain || lastEmail.body_html,
                       }),
                     });
                     await loadTicket();
@@ -201,11 +165,6 @@ export default function TicketDetailView() {
               onUpdate={loadTicket}
             />
             <AttachmentsPanel attachments={allAttachments} />
-            <AiInsightsPanel
-              classification={classification}
-              loading={classifying}
-              onRequestClassify={handleClassify}
-            />
           </div>
         </div>
       </div>

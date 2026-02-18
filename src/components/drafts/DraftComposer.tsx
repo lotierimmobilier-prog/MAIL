@@ -64,6 +64,26 @@ export default function DraftComposer({ ticket, emails, templates, onSent }: Dra
         received_at: e.received_at,
       }));
 
+      const { data: pastTickets } = await supabase
+        .from('tickets')
+        .select('subject, emails(body_text, direction, from_name, received_at)')
+        .eq('contact_email', ticket.contact_email)
+        .neq('id', ticket.id)
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+      let historyInstruction: string | undefined;
+      if (pastTickets && pastTickets.length > 0) {
+        const historyContext = pastTickets.map((t: any) => {
+          const msgs = (t.emails || [])
+            .sort((a: any, b: any) => new Date(a.received_at).getTime() - new Date(b.received_at).getTime())
+            .map((e: any) => `[${e.direction === 'inbound' ? 'Client' : 'Agent'}]: ${(e.body_text || '').substring(0, 300)}`)
+            .join('\n');
+          return `Sujet: ${t.subject}\n${msgs}`;
+        }).join('\n---\n');
+        historyInstruction = `Voici l'historique des echanges precedents avec ce contact pour contexte :\n${historyContext}`;
+      }
+
       const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-draft`;
       const res = await fetch(apiUrl, {
         method: 'POST',
@@ -76,6 +96,7 @@ export default function DraftComposer({ ticket, emails, templates, onSent }: Dra
           contact_name: ticket.contact_name,
           contact_email: ticket.contact_email,
           conversation,
+          user_instruction: historyInstruction,
         }),
       });
       const data = await res.json();
