@@ -127,7 +127,13 @@ export default function ConversationThread({ emails, notes = [] }: ConversationT
                   {format(new Date(email.received_at), 'MMM d, yyyy HH:mm')}
                 </span>
                 <button
-                  onClick={() => exportEmailToPdf(email)}
+                  onClick={async () => {
+                    try {
+                      await exportEmailToPdf(email);
+                    } catch (error) {
+                      console.error('Erreur export PDF:', error);
+                    }
+                  }}
                   className="flex items-center gap-1 px-2 py-1 text-xs text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition"
                   title="Exporter en PDF"
                 >
