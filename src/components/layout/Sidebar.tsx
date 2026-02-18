@@ -1,7 +1,7 @@
 import { NavLink, useSearchParams } from 'react-router-dom';
 import {
   Mail, LayoutDashboard, Inbox, FileText, Settings, BarChart3, BookOpen,
-  LogOut, ChevronLeft, ChevronRight, ChevronDown, Users,
+  LogOut, ChevronLeft, ChevronRight, ChevronDown, Users, SquarePen,
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
@@ -11,6 +11,7 @@ import type { Mailbox } from '../../lib/types';
 interface SidebarProps {
   collapsed: boolean;
   onToggle: () => void;
+  onCompose: () => void;
 }
 
 const navItems = [
@@ -23,7 +24,7 @@ const navItems = [
   { to: '/admin', icon: Settings, label: 'Admin' },
 ];
 
-export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
+export default function Sidebar({ collapsed, onToggle, onCompose }: SidebarProps) {
   const { signOut } = useAuth();
   const [mailboxes, setMailboxes] = useState<Mailbox[]>([]);
   const [showMailboxes, setShowMailboxes] = useState(false);
@@ -68,7 +69,22 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
         {!collapsed && <span className="font-bold text-lg tracking-tight">EmailOps</span>}
       </div>
 
-      <nav className="flex-1 py-4 px-2 space-y-1 overflow-y-auto">
+      <div className="px-3 pt-4 pb-2">
+        <button
+          onClick={onCompose}
+          className={`flex items-center gap-2 w-full rounded-lg font-medium transition-colors ${
+            collapsed
+              ? 'justify-center p-2.5 bg-cyan-500 hover:bg-cyan-600 text-white'
+              : 'px-4 py-2.5 bg-cyan-500 hover:bg-cyan-600 text-white text-sm'
+          }`}
+          title="Nouveau message"
+        >
+          <SquarePen className="w-5 h-5 shrink-0" />
+          {!collapsed && <span>Nouveau message</span>}
+        </button>
+      </div>
+
+      <nav className="flex-1 py-2 px-2 space-y-1 overflow-y-auto">
         {navItems.map((item, index) => (
           <div key={item.to}>
             <NavLink
