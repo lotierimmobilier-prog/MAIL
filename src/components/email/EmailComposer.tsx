@@ -3,6 +3,7 @@ import { X, Send, Sparkles, Loader2, Brain, PenTool } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import TipTapEditor, { juice } from '../ui/TipTapEditor';
 import AttachmentsManager from './AttachmentsManager';
+import ContactAutocomplete from '../contacts/ContactAutocomplete';
 import type { Ticket, Email } from '../../lib/types';
 
 interface EmailComposerProps {
@@ -309,11 +310,9 @@ export default function EmailComposer({ ticket, emails, onClose, onSent }: Email
 
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1.5">Destinataire</label>
-            <input
-              type="email"
+            <ContactAutocomplete
               value={to}
-              onChange={e => setTo(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500"
+              onChange={setTo}
               placeholder="destinataire@exemple.com"
             />
           </div>

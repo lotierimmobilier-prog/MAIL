@@ -9,6 +9,7 @@ import TemplateLibraryView from './components/templates/TemplateLibraryView';
 import KnowledgeBaseManager from './components/knowledge/KnowledgeBaseManager';
 import AdminView from './components/admin/AdminView';
 import ReportsView from './components/reports/ReportsView';
+import ContactsView from './components/contacts/ContactsView';
 import LoadingSpinner from './components/ui/LoadingSpinner';
 import { useMailboxSync } from './hooks/useMailboxSync';
 import type { ReactNode } from 'react';
@@ -50,6 +51,7 @@ function AppRoutes() {
         <Route index element={<DashboardView />} />
         <Route path="inbox" element={<InboxView />} />
         <Route path="inbox/:id" element={<TicketDetailView />} />
+        <Route path="contacts" element={<ContactsView />} />
         <Route path="templates" element={<TemplateLibraryView />} />
         <Route path="knowledge" element={<KnowledgeBaseManager />} />
         <Route path="reports" element={<ReportsView />} />

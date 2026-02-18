@@ -237,6 +237,18 @@ async function syncOvhMailbox(mb: any, sb: any, syncState: any, maxEmailsPerBatc
           updated_at: new Date().toISOString()
         }).eq("id", tid).lt("last_message_at", vd.toISOString());
 
+        const ovhContactAddr = dir === "inbound" ? fromAddr : toAddr;
+        if (ovhContactAddr && ovhContactAddr.includes("@") && ovhContactAddr.toLowerCase() !== mb.email_address.toLowerCase()) {
+          await sb.from("contacts").upsert({
+            email: ovhContactAddr.toLowerCase(),
+            first_name: "",
+            last_name: "",
+            source: "auto_sync",
+            email_count: 1,
+            last_contacted_at: vd.toISOString(),
+          }, { onConflict: "email", ignoreDuplicates: true }).catch(() => {});
+        }
+
         synced++;
       } catch (err) {
         console.error(`[${mb.name}] Error processing OVH email ${emailId}:`, err);
@@ -778,6 +790,23 @@ Deno.serve(async (req: Request) => {
             }
 
             await sb.from("tickets").update({ last_message_at: vd.toISOString(), updated_at: new Date().toISOString() }).eq("id", tid).lt("last_message_at", vd.toISOString());
+
+            const contactAddr = dir === "inbound" ? (from[0]?.address || "") : (to[0]?.address || "");
+            const contactName = dir === "inbound" ? (from[0]?.name || "") : "";
+            if (contactAddr && contactAddr.includes("@") && contactAddr.toLowerCase() !== mb.email_address.toLowerCase()) {
+              const cParts = contactName.trim().split(/\s+/);
+              const cFirst = cParts[0] || "";
+              const cLast = cParts.length > 1 ? cParts.slice(1).join(" ") : "";
+              await sb.from("contacts").upsert({
+                email: contactAddr.toLowerCase(),
+                first_name: cFirst,
+                last_name: cLast,
+                source: "auto_sync",
+                email_count: 1,
+                last_contacted_at: vd.toISOString(),
+              }, { onConflict: "email", ignoreDuplicates: true }).catch(() => {});
+            }
+
             synced++;
           } catch (e) {
             console.error(`[${mb.name}] Error processing UID ${uid}:`, e);

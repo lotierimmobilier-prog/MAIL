@@ -195,6 +195,21 @@ export interface InternalNote {
   author?: Profile;
 }
 
+export interface Contact {
+  id: string;
+  email: string;
+  first_name: string;
+  last_name: string;
+  company: string;
+  phone: string;
+  notes: string;
+  source: 'manual' | 'csv_import' | 'auto_sync' | 'ai_extracted';
+  last_contacted_at: string | null;
+  email_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface AuditLogEntry {
   id: string;
   user_id: string | null;

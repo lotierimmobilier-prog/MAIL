@@ -1,7 +1,7 @@
 import { NavLink, useSearchParams } from 'react-router-dom';
 import {
   Mail, LayoutDashboard, Inbox, FileText, Settings, BarChart3, BookOpen,
-  LogOut, ChevronLeft, ChevronRight, ChevronDown,
+  LogOut, ChevronLeft, ChevronRight, ChevronDown, Users,
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
@@ -16,6 +16,7 @@ interface SidebarProps {
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Tableau de bord' },
   { to: '/inbox', icon: Inbox, label: 'Boîte de réception' },
+  { to: '/contacts', icon: Users, label: 'Annuaire' },
   { to: '/templates', icon: FileText, label: 'Modèles' },
   { to: '/knowledge', icon: BookOpen, label: 'Base de connaissances' },
   { to: '/reports', icon: BarChart3, label: 'Rapports' },

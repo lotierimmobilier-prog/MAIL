@@ -27,7 +27,7 @@ Deno.serve(async (req: Request) => {
       .select("id, name, keywords, description")
       .order("name");
 
-    const searchText = `${subject} ${body}`.toLowerCase();
+    const searchText = `${subject || ""} ${body || ""}`.toLowerCase();
     let matchedCategory: any = null;
     let maxMatches = 0;
 
@@ -49,8 +49,9 @@ Deno.serve(async (req: Request) => {
     const openaiKey = Deno.env.get("OPENAI_API_KEY");
 
     if (!openaiKey) {
+      const fallbackCategoryName = matchedCategory?.name || "Demande generale";
       const fallback = {
-        category: "Demande generale",
+        category: fallbackCategoryName,
         subcategory: "Demande d'information",
         priority: "medium",
         intent: "demande_information",
@@ -65,20 +66,22 @@ Deno.serve(async (req: Request) => {
           "Envoyer un accuse de reception",
         ],
         suggested_assignee: null,
-        confidence: 0.7,
+        confidence: matchedCategory ? 0.7 : 0.3,
       };
-
-      const supabase = createClient(
-        Deno.env.get("SUPABASE_URL")!,
-        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-      );
 
       await supabase.from("ai_classifications").insert({
         email_id,
         ticket_id,
         ...fallback,
-        raw_response: { source: "fallback", reason: "no_openai_key" },
+        raw_response: { source: "keyword_fallback", reason: "no_openai_key", matched_keywords: maxMatches },
       });
+
+      if (matchedCategory && ticket_id) {
+        await supabase.from("tickets").update({
+          category_id: matchedCategory.id,
+          priority: "medium",
+        }).eq("id", ticket_id);
+      }
 
       return new Response(JSON.stringify(fallback), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -87,14 +90,14 @@ Deno.serve(async (req: Request) => {
 
     let categoriesContext = "";
     if (categories && categories.length > 0) {
-      categoriesContext = "\n\nCategories disponibles avec leurs mots-cles :\n" +
+      categoriesContext = "\n\nCategories disponibles (tu DOIS choisir parmi cette liste EXACTE) :\n" +
         categories.map(cat =>
-          `- ${cat.name}: ${cat.description || ""} | Mots-cles: ${(cat.keywords || []).join(", ")}`
+          `- "${cat.name}": ${cat.description || ""} | Mots-cles: ${(cat.keywords || []).join(", ")}`
         ).join("\n");
     }
 
     const prompt = `Analyse l'email suivant et retourne une reponse JSON STRICTE avec ces champs :
-- category (string) : categorie principale en francais (choisis parmi les categories disponibles ci-dessous)
+- category (string) : categorie principale - OBLIGATOIREMENT une des categories de la liste ci-dessous, utilise le nom EXACT
 - subcategory (string) : sous-categorie en francais
 - priority (string) : "low", "medium", "high" ou "urgent"
 - intent (string) : l'intention de l'expediteur en francais
@@ -110,7 +113,7 @@ De : ${from_name} <${from_address}>
 Corps :
 ${(body || "").substring(0, 3000)}
 
-IMPORTANT : Utilise les mots-cles fournis pour chaque categorie pour determiner la categorie la plus appropriee. Si tu trouves un mot-cle dans le sujet ou le corps de l'email qui correspond a une categorie, privilegie cette categorie.
+IMPORTANT : Tu DOIS choisir la categorie parmi la liste fournie ci-dessus. Utilise le nom EXACT de la categorie (respecte la casse). Analyse les mots-cles et le contexte pour determiner la meilleure categorie.
 
 Retourne UNIQUEMENT du JSON valide, aucun autre texte.`;
 
@@ -148,11 +151,6 @@ Retourne UNIQUEMENT du JSON valide, aucun autre texte.`;
     const cleaned = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
     const classification = JSON.parse(cleaned);
 
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
-
     await supabase.from("ai_classifications").insert({
       email_id,
       ticket_id,
@@ -168,9 +166,18 @@ Retourne UNIQUEMENT du JSON valide, aucun autre texte.`;
       raw_response: openaiData,
     });
 
-    if (matchedCategory && ticket_id) {
+    let resolvedCategory = matchedCategory;
+
+    if (!resolvedCategory && classification.category && categories) {
+      const aiCatName = classification.category.toLowerCase().trim();
+      resolvedCategory = categories.find(
+        (c: any) => c.name.toLowerCase().trim() === aiCatName
+      );
+    }
+
+    if (resolvedCategory && ticket_id) {
       await supabase.from("tickets").update({
-        category_id: matchedCategory.id,
+        category_id: resolvedCategory.id,
         priority: classification.priority ?? "medium",
       }).eq("id", ticket_id);
     } else if (ticket_id && classification.priority) {
