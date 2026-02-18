@@ -4,6 +4,14 @@ import type { User, Session } from '@supabase/supabase-js';
 import type { UserRole, ViewPermission } from '../lib/types';
 import { ALL_VIEW_PERMISSIONS } from '../lib/types';
 
+interface ImpersonationTarget {
+  id: string;
+  email: string;
+  fullName: string;
+  role: UserRole;
+  allowedViews: ViewPermission[];
+}
+
 interface AuthContextType {
   authenticated: boolean;
   loading: boolean;
@@ -18,6 +26,10 @@ interface AuthContextType {
   hasView: (view: ViewPermission) => boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
+  impersonating: ImpersonationTarget | null;
+  isRealAdmin: boolean;
+  startImpersonation: (target: ImpersonationTarget) => void;
+  stopImpersonation: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -29,6 +41,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [userFullName, setUserFullName] = useState('');
   const [allowedViews, setAllowedViews] = useState<ViewPermission[]>([]);
   const [loading, setLoading] = useState(true);
+  const [impersonating, setImpersonating] = useState<ImpersonationTarget | null>(null);
+  const [realAdminRole, setRealAdminRole] = useState<UserRole | null>(null);
+  const [realAdminName, setRealAdminName] = useState('');
+  const [realAdminViews, setRealAdminViews] = useState<ViewPermission[]>([]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -48,6 +64,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSession(null);
         setUser(null);
         setUserRole(null);
+        setImpersonating(null);
         setLoading(false);
       } else if (session) {
         setSession(session);
@@ -120,25 +137,51 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (!profile?.is_active) {
           await supabase.auth.signOut();
-          return { error: 'Votre compte est désactivé. Contactez un administrateur.' };
+          return { error: 'Votre compte est desactive. Contactez un administrateur.' };
         }
       }
 
       return { error: null };
-    } catch (err) {
-      return { error: 'Erreur de connexion. Veuillez réessayer.' };
+    } catch {
+      return { error: 'Erreur de connexion. Veuillez reessayer.' };
     }
   }
 
   async function signOut() {
+    setImpersonating(null);
     await supabase.auth.signOut();
     setUser(null);
     setSession(null);
     setUserRole(null);
   }
 
-  const isAdmin = userRole === 'admin';
-  const isManager = userRole === 'manager' || isAdmin;
+  function startImpersonation(target: ImpersonationTarget) {
+    setRealAdminRole(userRole);
+    setRealAdminName(userFullName);
+    setRealAdminViews(allowedViews);
+
+    setImpersonating(target);
+    setUserRole(target.role);
+    setUserFullName(target.fullName);
+    setAllowedViews(target.allowedViews);
+  }
+
+  function stopImpersonation() {
+    if (realAdminRole) {
+      setUserRole(realAdminRole);
+      setUserFullName(realAdminName);
+      setAllowedViews(realAdminViews);
+    }
+    setImpersonating(null);
+    setRealAdminRole(null);
+    setRealAdminName('');
+    setRealAdminViews([]);
+  }
+
+  const effectiveRole = impersonating ? impersonating.role : userRole;
+  const isRealAdmin = realAdminRole === 'admin' || (!impersonating && userRole === 'admin');
+  const isAdmin = effectiveRole === 'admin';
+  const isManager = effectiveRole === 'manager' || isAdmin;
   const canManage = isManager || isAdmin;
 
   function hasView(view: ViewPermission): boolean {
@@ -153,7 +196,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         loading,
         user,
         session,
-        userRole,
+        userRole: effectiveRole,
         userFullName,
         isAdmin,
         isManager,
@@ -162,6 +205,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         hasView,
         signIn,
         signOut,
+        impersonating,
+        isRealAdmin,
+        startImpersonation,
+        stopImpersonation,
       }}
     >
       {children}

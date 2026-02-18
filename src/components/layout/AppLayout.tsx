@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import NewEmailModal from '../email/NewEmailModal';
+import ImpersonationBanner from './ImpersonationBanner';
 
 export default function AppLayout() {
   const [collapsed, setCollapsed] = useState(false);
@@ -24,6 +25,8 @@ export default function AppLayout() {
 
   return (
     <div className="min-h-screen bg-slate-50">
+      <ImpersonationBanner />
+
       {isMobile && mobileOpen && (
         <div
           className="fixed inset-0 bg-black/40 z-40 transition-opacity"

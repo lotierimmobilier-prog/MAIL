@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { format } from 'date-fns';
-import { ChevronDown, Plus, Eye, EyeOff, Mail, Send, Settings as SettingsIcon, Trash2, Pencil } from 'lucide-react';
+import { ChevronDown, Plus, Eye, EyeOff, Mail, Send, Settings as SettingsIcon, Trash2, Pencil, UserCheck } from 'lucide-react';
 import Badge from '../ui/Badge';
 import Modal from '../ui/Modal';
 import UserEditModal from './UserEditModal';
 import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../contexts/AuthContext';
 import type { Profile, UserRole, Mailbox, ViewPermission } from '../../lib/types';
 import { ALL_VIEW_PERMISSIONS, VIEW_PERMISSION_LABELS } from '../../lib/types';
 import { callEdgeFunction } from '../../lib/edgeFunctionClient';
@@ -24,6 +25,7 @@ interface MailboxPermission {
 }
 
 export default function UserManager() {
+  const { user: currentUser, startImpersonation, impersonating } = useAuth();
   const [users, setUsers] = useState<Profile[]>([]);
   const [mailboxes, setMailboxes] = useState<Mailbox[]>([]);
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -181,6 +183,17 @@ export default function UserManager() {
     }
   }
 
+  function handleImpersonate(target: Profile) {
+    if (target.id === currentUser?.id) return;
+    startImpersonation({
+      id: target.id,
+      email: target.email,
+      fullName: target.full_name || target.email,
+      role: target.role as UserRole,
+      allowedViews: (target.allowed_views as ViewPermission[]) || [...ALL_VIEW_PERMISSIONS],
+    });
+  }
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
@@ -249,6 +262,16 @@ export default function UserManager() {
                 </td>
                 <td className="px-4 py-3 text-right">
                   <div className="flex items-center justify-end gap-3">
+                    {user.id !== currentUser?.id && !impersonating && (
+                      <button
+                        onClick={() => handleImpersonate(user)}
+                        className="flex items-center gap-1 text-xs font-medium text-amber-600 hover:text-amber-800 transition"
+                        title="Voir l'application en tant que cet utilisateur"
+                      >
+                        <UserCheck className="w-3.5 h-3.5" />
+                        Prendre la main
+                      </button>
+                    )}
                     <button
                       onClick={() => setEditUser(user)}
                       className="flex items-center gap-1 text-xs font-medium text-cyan-600 hover:text-cyan-800 transition"
@@ -261,7 +284,7 @@ export default function UserManager() {
                       onClick={() => toggleActive(user)}
                       className="text-xs font-medium text-slate-500 hover:text-slate-700 transition"
                     >
-                      {user.is_active ? 'Désactiver' : 'Activer'}
+                      {user.is_active ? 'Desactiver' : 'Activer'}
                     </button>
                     <button
                       onClick={() => handleDeleteUser(user)}

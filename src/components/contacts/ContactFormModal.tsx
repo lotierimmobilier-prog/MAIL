@@ -5,17 +5,18 @@ import type { Contact } from '../../lib/types';
 
 interface ContactFormModalProps {
   contact: Contact | null;
+  prefill?: Partial<Contact>;
   onClose: () => void;
   onSaved: () => void;
 }
 
-export default function ContactFormModal({ contact, onClose, onSaved }: ContactFormModalProps) {
-  const [email, setEmail] = useState(contact?.email || '');
-  const [firstName, setFirstName] = useState(contact?.first_name || '');
-  const [lastName, setLastName] = useState(contact?.last_name || '');
-  const [company, setCompany] = useState(contact?.company || '');
-  const [phone, setPhone] = useState(contact?.phone || '');
-  const [notes, setNotes] = useState(contact?.notes || '');
+export default function ContactFormModal({ contact, prefill, onClose, onSaved }: ContactFormModalProps) {
+  const [email, setEmail] = useState(contact?.email || prefill?.email || '');
+  const [firstName, setFirstName] = useState(contact?.first_name || prefill?.first_name || '');
+  const [lastName, setLastName] = useState(contact?.last_name || prefill?.last_name || '');
+  const [company, setCompany] = useState(contact?.company || prefill?.company || '');
+  const [phone, setPhone] = useState(contact?.phone || prefill?.phone || '');
+  const [notes, setNotes] = useState(contact?.notes || prefill?.notes || '');
   const [saving, setSaving] = useState(false);
 
   async function handleSave() {
