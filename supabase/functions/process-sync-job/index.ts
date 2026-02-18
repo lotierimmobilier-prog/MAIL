@@ -531,6 +531,22 @@ Deno.serve(async (req: Request) => {
       }).eq("mailbox_id", job.mailbox_id);
 
       console.log(`[${mailbox.name}] Job completed: ${newProgress.synced} synced, ${newProgress.skipped} skipped, ${newProgress.errors} errors`);
+
+      if (newProgress.synced > 0) {
+        try {
+          const classifyQueueUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/process-classification-queue`;
+          await fetch(classifyQueueUrl, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+              "Content-Type": "application/json",
+            },
+          });
+          console.log(`[${mailbox.name}] Classification queue processing triggered`);
+        } catch (classifyErr) {
+          console.error(`[${mailbox.name}] Failed to trigger classification:`, classifyErr);
+        }
+      }
     } else {
       await sb.from("sync_jobs").update({
         status: "pending",
@@ -544,6 +560,22 @@ Deno.serve(async (req: Request) => {
       }).eq("mailbox_id", job.mailbox_id);
 
       console.log(`[${mailbox.name}] Batch processed: ${result.synced} synced, more remaining`);
+
+      if (result.synced > 0) {
+        try {
+          const classifyQueueUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/process-classification-queue`;
+          await fetch(classifyQueueUrl, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+              "Content-Type": "application/json",
+            },
+          });
+          console.log(`[${mailbox.name}] Classification queue processing triggered after batch`);
+        } catch (classifyErr) {
+          console.error(`[${mailbox.name}] Failed to trigger classification after batch:`, classifyErr);
+        }
+      }
     }
 
     return new Response(
