@@ -1,13 +1,13 @@
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 const data = [
-  { date: 'Mon', tickets: 24, resolved: 18 },
-  { date: 'Tue', tickets: 31, resolved: 25 },
-  { date: 'Wed', tickets: 28, resolved: 22 },
-  { date: 'Thu', tickets: 35, resolved: 30 },
-  { date: 'Fri', tickets: 42, resolved: 35 },
-  { date: 'Sat', tickets: 15, resolved: 14 },
-  { date: 'Sun', tickets: 12, resolved: 10 },
+  { date: 'Lun', emails: 24, resolved: 18 },
+  { date: 'Mar', emails: 31, resolved: 25 },
+  { date: 'Mer', emails: 28, resolved: 22 },
+  { date: 'Jeu', emails: 35, resolved: 30 },
+  { date: 'Ven', emails: 42, resolved: 35 },
+  { date: 'Sam', emails: 15, resolved: 14 },
+  { date: 'Dim', emails: 12, resolved: 10 },
 ];
 
 export default function TicketChart() {
@@ -15,8 +15,8 @@ export default function TicketChart() {
     <div className="bg-white rounded-xl border border-slate-200 p-5">
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h3 className="text-sm font-semibold text-slate-900">Volume de tickets</h3>
-          <p className="text-xs text-slate-500 mt-0.5">Nouveaux vs résolus cette semaine</p>
+          <h3 className="text-sm font-semibold text-slate-900">Volume d'emails</h3>
+          <p className="text-xs text-slate-500 mt-0.5">Nouveaux vs traites cette semaine</p>
         </div>
         <div className="flex items-center gap-4 text-xs">
           <div className="flex items-center gap-1.5">
@@ -25,7 +25,7 @@ export default function TicketChart() {
           </div>
           <div className="flex items-center gap-1.5">
             <div className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-            <span className="text-slate-500">Résolus</span>
+            <span className="text-slate-500">Traites</span>
           </div>
         </div>
       </div>
@@ -33,7 +33,7 @@ export default function TicketChart() {
         <ResponsiveContainer width="100%" height="100%" minWidth={300} minHeight={200}>
           <AreaChart data={data}>
             <defs>
-              <linearGradient id="ticketGrad" x1="0" y1="0" x2="0" y2="1">
+              <linearGradient id="emailGrad" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor="#0891B2" stopOpacity={0.15} />
                 <stop offset="95%" stopColor="#0891B2" stopOpacity={0} />
               </linearGradient>
@@ -54,7 +54,7 @@ export default function TicketChart() {
                 color: '#F1F5F9',
               }}
             />
-            <Area type="monotone" dataKey="tickets" stroke="#0891B2" strokeWidth={2} fill="url(#ticketGrad)" />
+            <Area type="monotone" dataKey="emails" stroke="#0891B2" strokeWidth={2} fill="url(#emailGrad)" />
             <Area type="monotone" dataKey="resolved" stroke="#10B981" strokeWidth={2} fill="url(#resolvedGrad)" />
           </AreaChart>
         </ResponsiveContainer>

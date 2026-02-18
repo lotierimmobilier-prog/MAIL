@@ -5,8 +5,8 @@ interface MailboxStat {
   mailbox_name: string;
   mailbox_email: string;
   total: number;
-  open: number;
-  waiting: number;
+  unread: number;
+  untreated: number;
   urgent: number;
   change: number;
 }
@@ -19,9 +19,9 @@ export default function MailboxStats({ stats }: MailboxStatsProps) {
   if (stats.length === 0) {
     return (
       <div className="bg-white rounded-xl border border-slate-200 p-5">
-        <h3 className="text-sm font-semibold text-slate-900 mb-4">Statistiques par boîte mail</h3>
+        <h3 className="text-sm font-semibold text-slate-900 mb-4">Statistiques par boite mail</h3>
         <div className="text-center py-8 text-sm text-slate-500">
-          Aucune donnée disponible pour cette période
+          Aucune donnee disponible pour cette periode
         </div>
       </div>
     );
@@ -29,7 +29,7 @@ export default function MailboxStats({ stats }: MailboxStatsProps) {
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-5">
-      <h3 className="text-sm font-semibold text-slate-900 mb-4">Statistiques par boîte mail</h3>
+      <h3 className="text-sm font-semibold text-slate-900 mb-4">Statistiques par boite mail</h3>
       <div className="space-y-3">
         {stats.map(stat => {
           const TrendIcon = stat.change > 0 ? TrendingUp : stat.change < 0 ? TrendingDown : Minus;
@@ -53,12 +53,12 @@ export default function MailboxStats({ stats }: MailboxStatsProps) {
                   <p className="text-xs text-slate-500">Total</p>
                 </div>
                 <div className="text-center">
-                  <p className="text-lg font-bold text-blue-600">{stat.open}</p>
-                  <p className="text-xs text-slate-500">Ouverts</p>
+                  <p className="text-lg font-bold text-blue-600">{stat.unread}</p>
+                  <p className="text-xs text-slate-500">Non lus</p>
                 </div>
                 <div className="text-center">
-                  <p className="text-lg font-bold text-amber-600">{stat.waiting}</p>
-                  <p className="text-xs text-slate-500">Attente</p>
+                  <p className="text-lg font-bold text-amber-600">{stat.untreated}</p>
+                  <p className="text-xs text-slate-500">Non traites</p>
                 </div>
                 <div className="text-center">
                   <p className="text-lg font-bold text-red-600">{stat.urgent}</p>

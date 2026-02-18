@@ -90,24 +90,40 @@ export default function UserEditModal({ user, mailboxes, onClose, onSaved }: Use
     setSaving(true);
 
     try {
+      const updateData: Record<string, unknown> = {
+        full_name: fullName.trim(),
+        avatar_color: avatarColor,
+        updated_at: new Date().toISOString(),
+      };
+
+      if (!isSelf) {
+        updateData.role = role;
+        updateData.is_active = isActive;
+      }
+
+      updateData.allowed_views = allowedViews;
+
       const { error: profileError } = await supabase
         .from('profiles')
-        .update({
-          full_name: fullName.trim(),
-          role,
-          avatar_color: avatarColor,
-          is_active: isActive,
-          allowed_views: allowedViews,
-          updated_at: new Date().toISOString(),
-        })
+        .update(updateData)
         .eq('id', user.id);
 
       if (profileError) {
-        alert('Erreur lors de la mise a jour du profil');
+        console.error('Profile update error:', profileError);
+        alert('Erreur lors de la mise a jour du profil: ' + profileError.message);
         return;
       }
 
-      await supabase.from('mailbox_permissions').delete().eq('user_id', user.id);
+      const { error: deleteError } = await supabase
+        .from('mailbox_permissions')
+        .delete()
+        .eq('user_id', user.id);
+
+      if (deleteError) {
+        console.error('Permissions delete error:', deleteError);
+        alert('Erreur lors de la mise a jour des permissions');
+        return;
+      }
 
       const permsToInsert = mailboxPerms
         .filter(p => p.canRead || p.canSend || p.canManage)
@@ -120,11 +136,20 @@ export default function UserEditModal({ user, mailboxes, onClose, onSaved }: Use
         }));
 
       if (permsToInsert.length > 0) {
-        await supabase.from('mailbox_permissions').insert(permsToInsert);
+        const { error: insertError } = await supabase
+          .from('mailbox_permissions')
+          .insert(permsToInsert);
+
+        if (insertError) {
+          console.error('Permissions insert error:', insertError);
+          alert('Erreur lors de la mise a jour des permissions');
+          return;
+        }
       }
 
       onSaved();
-    } catch {
+    } catch (err) {
+      console.error('Save error:', err);
       alert('Erreur lors de la mise a jour');
     } finally {
       setSaving(false);

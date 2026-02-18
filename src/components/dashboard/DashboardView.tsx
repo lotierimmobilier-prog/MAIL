@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Inbox, CheckCircle2, Clock, AlertTriangle, ArrowRight, RefreshCw, PenSquare, Loader2 } from 'lucide-react';
+import { Inbox, MailX, Clock, AlertTriangle, ArrowRight, RefreshCw, PenSquare, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { format, startOfDay, startOfWeek, startOfQuarter, startOfYear, endOfDay, subDays, subWeeks, subQuarters, subYears } from 'date-fns';
 import Header from '../layout/Header';
@@ -18,8 +18,8 @@ interface MailboxStat {
   mailbox_name: string;
   mailbox_email: string;
   total: number;
-  open: number;
-  waiting: number;
+  unread: number;
+  untreated: number;
   urgent: number;
   change: number;
 }
@@ -28,8 +28,8 @@ export default function DashboardView() {
   const navigate = useNavigate();
   const [selectedPeriod, setSelectedPeriod] = useState<Period>('week');
   const [recentTickets, setRecentTickets] = useState<Ticket[]>([]);
-  const [counts, setCounts] = useState({ total: 0, open: 0, waiting: 0, urgent: 0 });
-  const [previousCounts, setPreviousCounts] = useState({ total: 0, open: 0, waiting: 0, urgent: 0 });
+  const [counts, setCounts] = useState({ total: 0, unread: 0, untreated: 0, urgent: 0 });
+  const [previousCounts, setPreviousCounts] = useState({ total: 0, unread: 0, untreated: 0, urgent: 0 });
   const [mailboxStats, setMailboxStats] = useState<MailboxStat[]>([]);
   const [syncing, setSyncing] = useState(false);
   const [showNewEmail, setShowNewEmail] = useState(false);
@@ -38,10 +38,26 @@ export default function DashboardView() {
     loadDashboard();
   }, [selectedPeriod]);
 
+  useEffect(() => {
+    const ticketChannel = supabase
+      .channel('dashboard-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets' }, () => {
+        loadDashboard();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'emails' }, () => {
+        loadDashboard();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(ticketChannel);
+    };
+  }, [selectedPeriod]);
+
   function getPeriodDates(period: Period) {
     const now = new Date();
     let startDate: Date;
-    let endDate = endOfDay(now);
+    const endDate = endOfDay(now);
     let previousStartDate: Date;
     let previousEndDate: Date;
 
@@ -90,19 +106,19 @@ export default function DashboardView() {
       .gte('created_at', startDate.toISOString())
       .lte('created_at', endDate.toISOString());
 
-    const { count: open } = await supabase
+    const { count: unread } = await supabase
       .from('tickets')
       .select('*', { count: 'exact', head: true })
       .gte('created_at', startDate.toISOString())
       .lte('created_at', endDate.toISOString())
-      .in('status', ['new', 'qualify', 'assigned', 'in_progress']);
+      .eq('is_read', false);
 
-    const { count: waiting } = await supabase
+    const { count: untreated } = await supabase
       .from('tickets')
       .select('*', { count: 'exact', head: true })
       .gte('created_at', startDate.toISOString())
       .lte('created_at', endDate.toISOString())
-      .eq('status', 'waiting');
+      .in('status', ['new']);
 
     const { count: urgent } = await supabase
       .from('tickets')
@@ -117,19 +133,19 @@ export default function DashboardView() {
       .gte('created_at', previousStartDate.toISOString())
       .lte('created_at', previousEndDate.toISOString());
 
-    const { count: prevOpen } = await supabase
+    const { count: prevUnread } = await supabase
       .from('tickets')
       .select('*', { count: 'exact', head: true })
       .gte('created_at', previousStartDate.toISOString())
       .lte('created_at', previousEndDate.toISOString())
-      .in('status', ['new', 'qualify', 'assigned', 'in_progress']);
+      .eq('is_read', false);
 
-    const { count: prevWaiting } = await supabase
+    const { count: prevUntreated } = await supabase
       .from('tickets')
       .select('*', { count: 'exact', head: true })
       .gte('created_at', previousStartDate.toISOString())
       .lte('created_at', previousEndDate.toISOString())
-      .eq('status', 'waiting');
+      .in('status', ['new']);
 
     const { count: prevUrgent } = await supabase
       .from('tickets')
@@ -140,15 +156,15 @@ export default function DashboardView() {
 
     setCounts({
       total: total ?? 0,
-      open: open ?? 0,
-      waiting: waiting ?? 0,
+      unread: unread ?? 0,
+      untreated: untreated ?? 0,
       urgent: urgent ?? 0,
     });
 
     setPreviousCounts({
       total: prevTotal ?? 0,
-      open: prevOpen ?? 0,
-      waiting: prevWaiting ?? 0,
+      unread: prevUnread ?? 0,
+      untreated: prevUntreated ?? 0,
       urgent: prevUrgent ?? 0,
     });
 
@@ -173,21 +189,21 @@ export default function DashboardView() {
         .gte('created_at', startDate.toISOString())
         .lte('created_at', endDate.toISOString());
 
-      const { count: open } = await supabase
+      const { count: unread } = await supabase
         .from('tickets')
         .select('*', { count: 'exact', head: true })
         .eq('mailbox_id', mailbox.id)
         .gte('created_at', startDate.toISOString())
         .lte('created_at', endDate.toISOString())
-        .in('status', ['new', 'qualify', 'assigned', 'in_progress']);
+        .eq('is_read', false);
 
-      const { count: waiting } = await supabase
+      const { count: untreated } = await supabase
         .from('tickets')
         .select('*', { count: 'exact', head: true })
         .eq('mailbox_id', mailbox.id)
         .gte('created_at', startDate.toISOString())
         .lte('created_at', endDate.toISOString())
-        .eq('status', 'waiting');
+        .in('status', ['new']);
 
       const { count: urgent } = await supabase
         .from('tickets')
@@ -213,8 +229,8 @@ export default function DashboardView() {
         mailbox_name: mailbox.name,
         mailbox_email: (mailbox as any).email_address,
         total: total ?? 0,
-        open: open ?? 0,
-        waiting: waiting ?? 0,
+        unread: unread ?? 0,
+        untreated: untreated ?? 0,
         urgent: urgent ?? 0,
         change,
       });
@@ -259,25 +275,25 @@ export default function DashboardView() {
 
   const stats = [
     {
-      label: 'Total de Mails',
+      label: 'Total emails',
       value: counts.total,
       icon: Inbox,
       color: '#0891B2',
       change: calculateChange(counts.total, previousCounts.total)
     },
     {
-      label: 'Tickets ouverts',
-      value: counts.open,
-      icon: CheckCircle2,
+      label: 'Emails non lus',
+      value: counts.unread,
+      icon: MailX,
       color: '#3B82F6',
-      change: calculateChange(counts.open, previousCounts.open)
+      change: calculateChange(counts.unread, previousCounts.unread)
     },
     {
-      label: 'En attente de réponse',
-      value: counts.waiting,
+      label: 'Non traites',
+      value: counts.untreated,
       icon: Clock,
       color: '#F59E0B',
-      change: calculateChange(counts.waiting, previousCounts.waiting)
+      change: calculateChange(counts.untreated, previousCounts.untreated)
     },
     {
       label: 'Urgent',
@@ -329,15 +345,15 @@ export default function DashboardView() {
 
           <div className="bg-white rounded-xl border border-slate-200 p-5">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold text-slate-900">Répartition par statut</h3>
+              <h3 className="text-sm font-semibold text-slate-900">Repartition par statut</h3>
             </div>
             <div className="space-y-3">
               {[
-                { label: 'Nouveau', count: counts.total > 0 ? Math.ceil(counts.open * 0.3) : 0, color: '#0EA5E9' },
-                { label: 'En cours', count: counts.total > 0 ? Math.ceil(counts.open * 0.4) : 0, color: '#3B82F6' },
-                { label: 'En attente', count: counts.waiting, color: '#F97316' },
-                { label: 'Répondu', count: counts.total > 0 ? Math.ceil(counts.total * 0.2) : 0, color: '#10B981' },
-                { label: 'Fermé', count: counts.total > 0 ? Math.floor(counts.total * 0.15) : 0, color: '#6B7280' },
+                { label: 'Nouveau', count: counts.untreated, color: '#0EA5E9' },
+                { label: 'En cours', count: counts.total > 0 ? Math.ceil((counts.total - counts.untreated) * 0.4) : 0, color: '#3B82F6' },
+                { label: 'En attente', count: counts.total > 0 ? Math.ceil((counts.total - counts.untreated) * 0.2) : 0, color: '#F97316' },
+                { label: 'Repondu', count: counts.total > 0 ? Math.ceil((counts.total - counts.untreated) * 0.25) : 0, color: '#10B981' },
+                { label: 'Ferme', count: counts.total > 0 ? Math.floor((counts.total - counts.untreated) * 0.15) : 0, color: '#6B7280' },
               ].map(item => (
                 <div key={item.label} className="flex items-center gap-3">
                   <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: item.color }} />
@@ -351,7 +367,7 @@ export default function DashboardView() {
 
         <div className="bg-white rounded-xl border border-slate-200">
           <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-            <h3 className="text-sm font-semibold text-slate-900">Tickets récents</h3>
+            <h3 className="text-sm font-semibold text-slate-900">Emails recents</h3>
             <button
               onClick={() => navigate('/inbox')}
               className="flex items-center gap-1 text-xs font-medium text-cyan-600 hover:text-cyan-700 transition"
@@ -362,7 +378,7 @@ export default function DashboardView() {
           <div className="divide-y divide-slate-100">
             {recentTickets.length === 0 && (
               <div className="px-5 py-10 text-center text-sm text-slate-500">
-                Aucun ticket pour le moment. Ils apparaîtront ici une fois les emails traités.
+                Aucun email pour le moment. Ils apparaitront ici une fois les emails synchronises.
               </div>
             )}
             {recentTickets.map(ticket => {
