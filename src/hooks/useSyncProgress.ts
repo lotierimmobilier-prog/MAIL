@@ -33,6 +33,16 @@ export function useSyncProgress() {
         .maybeSingle();
 
       if (syncStates) {
+        const updatedAt = new Date(syncStates.updated_at || 0).getTime();
+        const stuckThreshold = 60000;
+        if (Date.now() - updatedAt > stuckThreshold) {
+          setSyncProgress(prev => {
+            if (!prev.isSyncing) return prev;
+            return { isSyncing: false, progress: 0, mailboxName: null, totalEmails: 0, syncedEmails: 0 };
+          });
+          return;
+        }
+
         const syncedEmails = syncStates.total_emails_synced || 0;
         const lastUid = syncStates.last_uid || 0;
         const lastSeq = syncStates.last_sequence_number || 0;

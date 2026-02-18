@@ -63,11 +63,13 @@ export default function InboxView() {
         .eq('archived', false)
         .order('last_message_at', { ascending: false }),
       supabase.from('categories').select('*').order('name'),
-      supabase.from('mailboxes').select('*').order('name'),
+      supabase.from('mailboxes').select('*').eq('is_active', true).order('name'),
     ]);
 
+    const activeMailboxIds = new Set((mbRes.data || []).map(m => m.id));
+
     if (ticketRes.data) {
-      setTickets(ticketRes.data);
+      setTickets(ticketRes.data.filter(t => activeMailboxIds.has(t.mailbox_id)));
 
       const ticketIds = ticketRes.data.map(t => t.id);
 
