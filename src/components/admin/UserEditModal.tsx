@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Mail, Send, Settings as SettingsIcon } from 'lucide-react';
+import { Mail, Send, Settings as SettingsIcon, ShieldAlert } from 'lucide-react';
 import Modal from '../ui/Modal';
 import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../contexts/AuthContext';
 import type { Profile, UserRole, Mailbox, ViewPermission } from '../../lib/types';
 import { ALL_VIEW_PERMISSIONS, VIEW_PERMISSION_LABELS } from '../../lib/types';
 
@@ -29,6 +30,8 @@ const ROLE_LABELS: Record<UserRole, string> = {
 const AVATAR_COLORS = ['#0891B2', '#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#EC4899', '#8B5CF6', '#6B7280'];
 
 export default function UserEditModal({ user, mailboxes, onClose, onSaved }: UserEditModalProps) {
+  const { user: currentUser } = useAuth();
+  const isSelf = currentUser?.id === user.id;
   const [fullName, setFullName] = useState(user.full_name || '');
   const [role, setRole] = useState<UserRole>(user.role);
   const [avatarColor, setAvatarColor] = useState(user.avatar_color || '#0891B2');
@@ -148,20 +151,28 @@ export default function UserEditModal({ user, mailboxes, onClose, onSaved }: Use
             <select
               value={role}
               onChange={e => setRole(e.target.value as UserRole)}
-              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500"
+              disabled={isSelf}
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 disabled:opacity-60 disabled:cursor-not-allowed"
             >
               {Object.entries(ROLE_LABELS).map(([val, label]) => (
                 <option key={val} value={val}>{label}</option>
               ))}
             </select>
+            {isSelf && (
+              <p className="flex items-center gap-1 text-xs text-amber-600 mt-1">
+                <ShieldAlert className="w-3 h-3" />
+                Vous ne pouvez pas modifier votre propre role
+              </p>
+            )}
           </div>
         </div>
 
         <div className="flex items-center gap-3">
           <label className="text-xs font-medium text-slate-600">Compte actif</label>
           <button
-            onClick={() => setIsActive(!isActive)}
-            className={`relative w-10 h-5 rounded-full transition-colors ${isActive ? 'bg-emerald-500' : 'bg-slate-300'}`}
+            onClick={() => !isSelf && setIsActive(!isActive)}
+            disabled={isSelf}
+            className={`relative w-10 h-5 rounded-full transition-colors ${isActive ? 'bg-emerald-500' : 'bg-slate-300'} ${isSelf ? 'opacity-60 cursor-not-allowed' : ''}`}
           >
             <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${isActive ? 'translate-x-5' : ''}`} />
           </button>
