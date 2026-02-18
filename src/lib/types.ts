@@ -77,6 +77,16 @@ export interface Mailbox {
   updated_at: string;
 }
 
+export interface MailboxFolder {
+  id: string;
+  mailbox_id: string;
+  name: string;
+  imap_path: string;
+  parent_id: string | null;
+  sort_order: number;
+  created_at: string;
+}
+
 export interface MailboxPermission {
   id: string;
   mailbox_id: string;

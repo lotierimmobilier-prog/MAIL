@@ -29,7 +29,7 @@ interface AiClassification {
 export default function InboxView() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { getReadableMailboxIds, loading: permsLoading } = useMailboxPermissions();
+  const { getReadableMailboxIds, getSendableMailboxIds, loading: permsLoading } = useMailboxPermissions();
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [mailboxes, setMailboxes] = useState<Mailbox[]>([]);
@@ -452,14 +452,16 @@ export default function InboxView() {
                 {syncResult.msg}
               </span>
             )}
-            <button
-              onClick={() => setShowNewEmailModal(true)}
-              className="flex items-center gap-1.5 px-2 lg:px-3 py-1.5 text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition"
-              title="Nouveau message"
-            >
-              <PenSquare className="w-3.5 h-3.5" />
-              <span className="hidden md:inline">Nouveau</span>
-            </button>
+            {(() => { const sIds = getSendableMailboxIds(); return !sIds || sIds.size > 0; })() && (
+              <button
+                onClick={() => setShowNewEmailModal(true)}
+                className="flex items-center gap-1.5 px-2 lg:px-3 py-1.5 text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition"
+                title="Nouveau message"
+              >
+                <PenSquare className="w-3.5 h-3.5" />
+                <span className="hidden md:inline">Nouveau</span>
+              </button>
+            )}
             <button
               onClick={handleSyncAll}
               disabled={syncing}

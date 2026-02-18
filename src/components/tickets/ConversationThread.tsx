@@ -1,9 +1,10 @@
 import { format } from 'date-fns';
 import { useState, useMemo } from 'react';
-import { ArrowDownLeft, ArrowUpRight, Paperclip, Code, FileText, StickyNote } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, Paperclip, Code, FileText, StickyNote, FileDown } from 'lucide-react';
 import type { Email, InternalNote } from '../../lib/types';
 import { formatFileSize } from '../../lib/constants';
 import { cleanEmailHtml, extractTextFromHtml, fixUtf8Encoding } from '../../lib/emailUtils';
+import { exportEmailToPdf } from '../../lib/pdfExport';
 
 interface ConversationThreadProps {
   emails: Email[];
@@ -121,15 +122,23 @@ export default function ConversationThread({ emails, notes = [] }: ConversationT
                   {email.cc_addresses?.length > 0 && ` | CC: ${email.cc_addresses.join(', ')}`}
                 </p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
                 <span className="text-xs text-slate-400 shrink-0">
                   {format(new Date(email.received_at), 'MMM d, yyyy HH:mm')}
                 </span>
+                <button
+                  onClick={() => exportEmailToPdf(email)}
+                  className="flex items-center gap-1 px-2 py-1 text-xs text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition"
+                  title="Exporter en PDF"
+                >
+                  <FileDown className="w-3.5 h-3.5" />
+                  <span>PDF</span>
+                </button>
                 {email.body_html && (
                   <button
                     onClick={() => toggleViewMode(email.id)}
                     className="flex items-center gap-1 px-2 py-1 text-xs text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition"
-                    title={viewMode === 'html' ? 'Voir le texte brut' : viewMode === 'text' ? 'Voir le HTML brut' : 'Voir le HTML nettoyé'}
+                    title={viewMode === 'html' ? 'Voir le texte brut' : viewMode === 'text' ? 'Voir le HTML brut' : 'Voir le HTML nettoye'}
                   >
                     {viewMode === 'html' ? (
                       <>

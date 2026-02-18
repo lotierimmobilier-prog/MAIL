@@ -18,7 +18,7 @@ import type { Ticket, Email, Profile, Category, InternalNote, EmailTemplate, Att
 export default function TicketDetailView() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { canSendMailbox } = useMailboxPermissions();
+  const { canSendMailbox, canReadMailbox, loading: permsLoading } = useMailboxPermissions();
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [emails, setEmails] = useState<Email[]>([]);
   const [notes, setNotes] = useState<InternalNote[]>([]);
@@ -75,8 +75,8 @@ export default function TicketDetailView() {
     return attachments;
   }, [emails]);
 
-  if (loading) return <LoadingSpinner />;
-  if (!ticket) {
+  if (loading || permsLoading) return <LoadingSpinner />;
+  if (!ticket || !canReadMailbox(ticket.mailbox_id)) {
     return (
       <div className="min-h-screen">
         <Header title="Ticket introuvable" />
@@ -118,46 +118,48 @@ export default function TicketDetailView() {
               currentTicketId={ticket.id}
             />
 
-            {emails.length > 0 && (
-              <AiResponseSuggestions
-                ticketId={ticket.id}
-                onAccept={() => {
-                  setComposerOpen(true);
-                }}
-                onRegenerate={async () => {
-                  try {
-                    const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/auto-generate-draft`;
-                    await fetch(apiUrl, {
-                      method: 'POST',
-                      headers: {
-                        'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-                        'Content-Type': 'application/json',
-                      },
-                      body: JSON.stringify({
-                        ticket_id: ticket.id,
-                      }),
-                    });
-                    await loadTicket();
-                  } catch (error) {
-                    console.error('Failed to regenerate responses:', error);
-                  }
-                }}
-              />
-            )}
-
             {canSendMailbox(ticket.mailbox_id) && (
-              <div className="flex justify-end">
-                <button
-                  onClick={() => setComposerOpen(true)}
-                  className="flex items-center gap-2 px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-medium rounded-lg shadow-sm transition"
-                >
-                  <Mail className="w-4 h-4" />
-                  Envoyer un email
-                </button>
-              </div>
-            )}
+              <>
+                {emails.length > 0 && (
+                  <AiResponseSuggestions
+                    ticketId={ticket.id}
+                    onAccept={() => {
+                      setComposerOpen(true);
+                    }}
+                    onRegenerate={async () => {
+                      try {
+                        const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/auto-generate-draft`;
+                        await fetch(apiUrl, {
+                          method: 'POST',
+                          headers: {
+                            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+                            'Content-Type': 'application/json',
+                          },
+                          body: JSON.stringify({
+                            ticket_id: ticket.id,
+                          }),
+                        });
+                        await loadTicket();
+                      } catch (error) {
+                        console.error('Failed to regenerate responses:', error);
+                      }
+                    }}
+                  />
+                )}
 
-            <DraftComposer ticket={ticket} emails={emails} templates={templates} onSent={loadTicket} />
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => setComposerOpen(true)}
+                    className="flex items-center gap-2 px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-medium rounded-lg shadow-sm transition"
+                  >
+                    <Mail className="w-4 h-4" />
+                    Envoyer un email
+                  </button>
+                </div>
+
+                <DraftComposer ticket={ticket} emails={emails} templates={templates} onSent={loadTicket} />
+              </>
+            )}
             <InternalNotes ticketId={ticket.id} notes={notes} onNoteAdded={loadTicket} />
           </div>
 
