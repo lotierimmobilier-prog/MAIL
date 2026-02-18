@@ -42,18 +42,30 @@ export default function EmailComposer({ ticket, emails, onClose, onSent }: Email
       const defaultSig = data.find(s => s.is_default);
       if (defaultSig) {
         setSelectedSignature(defaultSig.id);
+        setBody(`<p></p><br/><div data-signature="true" style="border-top: 1px solid #e2e8f0; padding-top: 12px; margin-top: 16px;">${defaultSig.html_content}</div>`);
       }
     }
   }
 
-  function insertSignature(htmlBody: string): string {
-    if (!selectedSignature) return htmlBody;
+  useEffect(() => {
+    const sigPattern = /<br\/?>\s*<div data-signature="true"[^>]*>[\s\S]*<\/div>$/;
 
-    const signature = signatures.find(s => s.id === selectedSignature);
-    if (!signature) return htmlBody;
+    if (!selectedSignature) {
+      setBody(prev => prev.replace(sigPattern, ''));
+      return;
+    }
 
-    return `${htmlBody}<br/><br/>${signature.html_content}`;
-  }
+    const sig = signatures.find(s => s.id === selectedSignature);
+    if (!sig) return;
+
+    const newSigBlock = `<br/><div data-signature="true" style="border-top: 1px solid #e2e8f0; padding-top: 12px; margin-top: 16px;">${sig.html_content}</div>`;
+
+    if (sigPattern.test(body)) {
+      setBody(body.replace(sigPattern, newSigBlock));
+    } else {
+      setBody(prev => `${prev}${newSigBlock}`);
+    }
+  }, [selectedSignature]);
 
   async function handleImageUpload(file: File): Promise<string> {
     const fileExt = file.name.split('.').pop();
@@ -196,8 +208,7 @@ export default function EmailComposer({ ticket, emails, onClose, onSent }: Email
         .filter(e => e.direction === 'inbound')
         .sort((a, b) => new Date(b.received_at).getTime() - new Date(a.received_at).getTime())[0];
 
-      const htmlWithSignature = insertSignature(body);
-      const inlineHtml = juice(htmlWithSignature);
+      const inlineHtml = juice(body);
 
       const response = await fetch(apiUrl, {
         method: 'POST',

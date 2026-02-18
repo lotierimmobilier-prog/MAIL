@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Server, Users, FolderOpen, Shield, Settings, Activity, Tag, Lock, Sparkles } from 'lucide-react';
+import { Server, Users, FolderOpen, Shield, Settings, Activity, Tag, Lock, Sparkles, PenTool } from 'lucide-react';
 import Header from '../layout/Header';
 import MailboxManager from './MailboxManager';
 import UserManager from './UserManager';
@@ -10,6 +10,7 @@ import SettingsManager from './SettingsManager';
 import MailboxDiagnostics from './MailboxDiagnostics';
 import SecurityManager from './SecurityManager';
 import AiSearchManager from './AiSearchManager';
+import SignatureManager from './SignatureManager';
 import { useAuth } from '../../contexts/AuthContext';
 
 const tabs = [
@@ -19,6 +20,7 @@ const tabs = [
   { id: 'users', label: 'Utilisateurs', icon: Users },
   { id: 'categories', label: 'Catégories', icon: FolderOpen },
   { id: 'status-priority', label: 'Statuts & Priorités', icon: Tag },
+  { id: 'signatures', label: 'Signatures', icon: PenTool },
   { id: 'security', label: 'Sécurité', icon: Lock, adminOnly: true },
   { id: 'settings', label: 'Paramètres', icon: Settings, adminOnly: true },
   { id: 'audit', label: 'Journal d\'audit', icon: Shield, adminOnly: true },
@@ -60,6 +62,7 @@ export default function AdminView() {
         {activeTab === 'users' && <UserManager />}
         {activeTab === 'categories' && <CategoryManager />}
         {activeTab === 'status-priority' && <StatusPriorityManager />}
+        {activeTab === 'signatures' && <SignatureManager />}
         {activeTab === 'security' && isAdmin && <SecurityManager />}
         {activeTab === 'settings' && isAdmin && <SettingsManager />}
         {activeTab === 'audit' && isAdmin && <AuditLogViewer />}

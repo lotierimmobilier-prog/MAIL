@@ -88,7 +88,7 @@ export default function TipTapEditor({
           'style', 'class', 'align', 'width', 'height',
           'colspan', 'rowspan', 'color'
         ],
-        ALLOW_DATA_ATTR: false,
+        ALLOW_DATA_ATTR: true,
       });
       onChange(sanitized);
     },
