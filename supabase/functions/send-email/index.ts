@@ -8,6 +8,12 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
 };
 
+interface AttachmentInfo {
+  filename: string;
+  content_type: string;
+  storage_path: string;
+}
+
 interface SendEmailRequest {
   mailboxId: string;
   to: string;
@@ -16,6 +22,7 @@ interface SendEmailRequest {
   ticketId?: string;
   inReplyToMessageId?: string;
   idempotencyKey?: string;
+  attachments?: AttachmentInfo[];
 }
 
 async function sendViaSMTP(
@@ -30,7 +37,8 @@ async function sendViaSMTP(
   htmlBody: string,
   textBody: string,
   messageId: string,
-  inReplyTo?: string
+  inReplyTo?: string,
+  mailAttachments?: { filename: string; content: Uint8Array; contentType: string }[]
 ) {
   let secure = false;
   let requireTLS = false;
@@ -89,6 +97,14 @@ async function sendViaSMTP(
     mailOptions.references = inReplyTo;
   }
 
+  if (mailAttachments && mailAttachments.length > 0) {
+    mailOptions.attachments = mailAttachments.map(att => ({
+      filename: att.filename,
+      content: att.content,
+      contentType: att.contentType,
+    }));
+  }
+
   const result = await transporter.sendMail(mailOptions);
   return result;
 }
@@ -129,7 +145,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const body: SendEmailRequest = await req.json();
-    const { mailboxId, to, subject, body: emailBody, ticketId, inReplyToMessageId, idempotencyKey } = body;
+    const { mailboxId, to, subject, body: emailBody, ticketId, inReplyToMessageId, idempotencyKey, attachments: reqAttachments } = body;
 
     if (!mailboxId || !to || !subject || !emailBody) {
       return new Response(
@@ -284,6 +300,27 @@ Deno.serve(async (req: Request) => {
       throw new Error(`Erreur lors de la sauvegarde de l'email: ${insertError.message}`);
     }
 
+    const mailAttachments: { filename: string; content: Uint8Array; contentType: string }[] = [];
+    if (reqAttachments && reqAttachments.length > 0) {
+      for (const att of reqAttachments) {
+        const { data: fileData, error: dlError } = await supabaseAdmin.storage
+          .from('attachments')
+          .download(att.storage_path);
+
+        if (dlError || !fileData) {
+          console.error(`Failed to download attachment ${att.filename}:`, dlError);
+          continue;
+        }
+
+        const arrayBuffer = await fileData.arrayBuffer();
+        mailAttachments.push({
+          filename: att.filename,
+          content: new Uint8Array(arrayBuffer),
+          contentType: att.content_type,
+        });
+      }
+    }
+
     try {
       await sendViaSMTP(
         mailbox.smtp_host,
@@ -297,7 +334,8 @@ Deno.serve(async (req: Request) => {
         htmlBody,
         textBody,
         messageId,
-        inReplyToMessageId
+        inReplyToMessageId,
+        mailAttachments
       );
     } catch (smtpError) {
       if (insertedEmail?.id) {

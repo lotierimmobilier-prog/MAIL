@@ -212,6 +212,11 @@ export default function EmailComposer({ ticket, emails, onClose, onSent }: Email
           ticketId: ticket.id,
           inReplyToMessageId: latestInboundEmail?.message_id,
           idempotencyKey: `<${crypto.randomUUID()}@send>`,
+          attachments: attachments.map(a => ({
+            filename: a.filename,
+            content_type: a.content_type,
+            storage_path: a.storage_path
+          }))
         })
       });
 

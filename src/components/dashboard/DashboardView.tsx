@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Inbox, CheckCircle2, Clock, AlertTriangle, ArrowRight } from 'lucide-react';
+import { Inbox, CheckCircle2, Clock, AlertTriangle, ArrowRight, RefreshCw, PenSquare, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { format, startOfDay, startOfWeek, startOfQuarter, startOfYear, endOfDay, subDays, subWeeks, subQuarters, subYears } from 'date-fns';
 import Header from '../layout/Header';
@@ -8,6 +8,7 @@ import TicketChart from './TicketChart';
 import PeriodFilter, { type Period } from './PeriodFilter';
 import MailboxStats from './MailboxStats';
 import Badge from '../ui/Badge';
+import NewEmailModal from '../email/NewEmailModal';
 import { supabase } from '../../lib/supabase';
 import { getStatusConfig, getPriorityConfig } from '../../lib/constants';
 import type { Ticket } from '../../lib/types';
@@ -30,6 +31,8 @@ export default function DashboardView() {
   const [counts, setCounts] = useState({ total: 0, open: 0, waiting: 0, urgent: 0 });
   const [previousCounts, setPreviousCounts] = useState({ total: 0, open: 0, waiting: 0, urgent: 0 });
   const [mailboxStats, setMailboxStats] = useState<MailboxStat[]>([]);
+  const [syncing, setSyncing] = useState(false);
+  const [showNewEmail, setShowNewEmail] = useState(false);
 
   useEffect(() => {
     loadDashboard();
@@ -225,6 +228,35 @@ export default function DashboardView() {
     return Math.round((current - previous) / previous * 100);
   }
 
+  async function handleSync() {
+    if (syncing) return;
+    setSyncing(true);
+    try {
+      const headers = {
+        'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+        'Content-Type': 'application/json',
+      };
+
+      const createJobUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-sync-job`;
+      const createRes = await fetch(createJobUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ batch_size: 30 })
+      });
+
+      if (createRes.ok) {
+        const workerUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/job-worker`;
+        await fetch(workerUrl, { method: 'POST', headers });
+      }
+
+      await loadDashboard();
+    } catch (error) {
+      console.error('Sync error:', error);
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   const stats = [
     {
       label: 'Total de Mails',
@@ -262,7 +294,28 @@ export default function DashboardView() {
       <div className="p-6 space-y-6">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold text-slate-900">Vue d'ensemble</h2>
-          <PeriodFilter selectedPeriod={selectedPeriod} onChange={setSelectedPeriod} />
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleSync}
+              disabled={syncing}
+              className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 text-sm font-medium rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {syncing ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <RefreshCw className="w-4 h-4" />
+              )}
+              Synchroniser
+            </button>
+            <button
+              onClick={() => setShowNewEmail(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-medium rounded-lg transition"
+            >
+              <PenSquare className="w-4 h-4" />
+              Nouveau mail
+            </button>
+            <PeriodFilter selectedPeriod={selectedPeriod} onChange={setSelectedPeriod} />
+          </div>
         </div>
 
         <StatsCards stats={stats} />
@@ -341,6 +394,16 @@ export default function DashboardView() {
           </div>
         </div>
       </div>
+
+      {showNewEmail && (
+        <NewEmailModal
+          onClose={() => setShowNewEmail(false)}
+          onSent={() => {
+            setShowNewEmail(false);
+            loadDashboard();
+          }}
+        />
+      )}
     </div>
   );
 }
