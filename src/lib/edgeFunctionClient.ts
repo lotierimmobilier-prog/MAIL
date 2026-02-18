@@ -3,7 +3,6 @@ import { supabase } from './supabase';
 interface EdgeFunctionOptions {
   functionName: string;
   body?: any;
-  useServiceRole?: boolean;
   useUserToken?: boolean;
   timeout?: number;
 }
@@ -20,7 +19,6 @@ export async function callEdgeFunction<T = any>(
   const {
     functionName,
     body,
-    useServiceRole = false,
     useUserToken = false,
     timeout = 30000
   } = options;
@@ -32,21 +30,16 @@ export async function callEdgeFunction<T = any>(
   if (useUserToken) {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) {
-      console.error('[EdgeFunction] No user session found');
       return {
         error: 'Session expirée. Veuillez vous reconnecter.',
         status: 401
       };
     }
     authToken = session.access_token;
-    console.log('[EdgeFunction] Using user session token');
   } else {
-    const apiKey = useServiceRole
-      ? import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY
-      : import.meta.env.VITE_SUPABASE_ANON_KEY;
+    const apiKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
     if (!apiKey || apiKey.includes('undefined')) {
-      console.error('[EdgeFunction] API key not configured');
       return {
         error: 'Configuration manquante : clé API Supabase'
       };
@@ -55,29 +48,17 @@ export async function callEdgeFunction<T = any>(
   }
 
   if (!apiUrl || apiUrl.includes('undefined')) {
-    console.error('[EdgeFunction] VITE_SUPABASE_URL not configured');
     return {
       error: 'Configuration manquante : VITE_SUPABASE_URL'
     };
   }
 
-  console.log(`[EdgeFunction] Calling ${functionName}`, {
-    url: apiUrl,
-    hasBody: !!body,
-    useServiceRole,
-    useUserToken,
-    timeout
-  });
-
   const controller = new AbortController();
   const timeoutId = setTimeout(() => {
-    console.warn(`[EdgeFunction] ${functionName} timeout after ${timeout}ms`);
     controller.abort();
   }, timeout);
 
   try {
-    const startTime = Date.now();
-
     const response = await fetch(apiUrl, {
       method: 'POST',
       headers: {
@@ -90,24 +71,14 @@ export async function callEdgeFunction<T = any>(
 
     clearTimeout(timeoutId);
 
-    const duration = Date.now() - startTime;
-    console.log(`[EdgeFunction] ${functionName} responded in ${duration}ms with status ${response.status}`);
-
     if (response.status === 546) {
-      console.error(`[EdgeFunction] HTTP 546 - Runtime error in ${functionName}`);
-      console.error('[EdgeFunction] This usually means an unhandled exception in the Edge Function');
-      console.error('[EdgeFunction] Check Supabase Dashboard > Edge Functions > Logs for details');
-
       let errorDetails = 'Erreur d\'exécution dans la fonction Edge.';
       try {
         const errorText = await response.text();
         if (errorText) {
-          console.error('[EdgeFunction] Error response:', errorText);
           errorDetails += ` Détails: ${errorText}`;
         }
-      } catch (e) {
-        console.error('[EdgeFunction] Could not parse error response');
-      }
+      } catch {}
 
       return {
         error: errorDetails,
@@ -117,8 +88,6 @@ export async function callEdgeFunction<T = any>(
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`[EdgeFunction] ${functionName} error (${response.status}):`, errorText);
-
       return {
         error: `Erreur HTTP ${response.status}: ${errorText || 'Réponse vide'}`,
         status: response.status
@@ -129,16 +98,13 @@ export async function callEdgeFunction<T = any>(
     const responseText = await response.text();
 
     if (!responseText) {
-      console.warn(`[EdgeFunction] ${functionName} returned empty response`);
       return { data: undefined };
     }
 
     try {
       data = JSON.parse(responseText);
-      console.log(`[EdgeFunction] ${functionName} success`);
       return { data, status: response.status };
-    } catch (parseError) {
-      console.error(`[EdgeFunction] ${functionName} returned invalid JSON:`, responseText);
+    } catch {
       return {
         error: 'Réponse invalide du serveur (JSON attendu)',
         status: response.status
@@ -149,7 +115,6 @@ export async function callEdgeFunction<T = any>(
     clearTimeout(timeoutId);
 
     if (err.name === 'AbortError') {
-      console.error(`[EdgeFunction] ${functionName} timeout after ${timeout}ms`);
       return {
         error: `La requête a dépassé le délai de ${timeout / 1000}s`,
         status: 408
@@ -157,14 +122,12 @@ export async function callEdgeFunction<T = any>(
     }
 
     if (err.message?.includes('Failed to fetch')) {
-      console.error(`[EdgeFunction] ${functionName} network error - cannot reach server`);
       return {
         error: 'Impossible de contacter le serveur. Vérifiez votre connexion.',
         status: 0
       };
     }
 
-    console.error(`[EdgeFunction] ${functionName} unexpected error:`, err);
     return {
       error: `Erreur réseau: ${err.message}`,
       status: 0
@@ -180,8 +143,6 @@ export async function callEdgeFunctionWithRetry<T = any>(
   let lastError: EdgeFunctionResult<T> | null = null;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    console.log(`[EdgeFunction] Attempt ${attempt}/${maxRetries} for ${options.functionName}`);
-
     const result = await callEdgeFunction<T>(options);
 
     if (!result.error || result.status === 400 || result.status === 404) {
@@ -189,15 +150,12 @@ export async function callEdgeFunctionWithRetry<T = any>(
     }
 
     lastError = result;
-    console.warn(`[EdgeFunction] Attempt ${attempt} failed:`, result.error);
 
     if (attempt < maxRetries) {
       const delay = retryDelay * attempt;
-      console.log(`[EdgeFunction] Retrying in ${delay}ms...`);
       await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
 
-  console.error(`[EdgeFunction] All ${maxRetries} attempts failed for ${options.functionName}`);
   return lastError!;
 }

@@ -9,9 +9,17 @@ const cors = {
 
 const EXECUTION_TIMEOUT = 45000;
 const MAX_BATCH_SIZE = 15;
+const IMAP_CONNECT_TIMEOUT = 10000;
+const IMAP_READ_TIMEOUT = 15000;
 
 function stripRe(s: string): string {
-  return s.replace(/^(Re|Fwd|Fw|TR|AW|Ref):\s*/gi, "").trim();
+  let prev = "";
+  let result = s;
+  while (result !== prev) {
+    prev = result;
+    result = result.replace(/^(Re|Fwd|Fw|TR|AW|Ref):\s*/gi, "").trim();
+  }
+  return result;
 }
 
 function decHdr(raw: string): string {
@@ -94,14 +102,25 @@ class Imap {
   private dec = new TextDecoder();
 
   async open(host: string, port: number) {
-    this.c = await Deno.connectTls({ hostname: host, port });
+    const conn = await Promise.race([
+      Deno.connectTls({ hostname: host, port }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`IMAP connection timeout after ${IMAP_CONNECT_TIMEOUT}ms`)), IMAP_CONNECT_TIMEOUT)
+      )
+    ]);
+    this.c = conn;
     const g = await this.line();
     if (!g.includes("OK") && !g.startsWith("*")) throw new Error("Bad greeting: " + g);
   }
 
   private async rd() {
     const b = new Uint8Array(32768);
-    const n = await this.c!.read(b);
+    const n = await Promise.race([
+      this.c!.read(b),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("IMAP read timeout")), IMAP_READ_TIMEOUT)
+      )
+    ]);
     if (n === null) throw new Error("Connection closed");
     this.buf += this.dec.decode(b.subarray(0, n));
   }
@@ -144,15 +163,16 @@ class Imap {
     return m ? parseInt(m[1]) : 0;
   }
 
-  async searchSeq(): Promise<number[]> {
-    const r = await this.cmd(`SEARCH ALL`);
+  async searchAllUIDs(): Promise<number[]> {
+    const r = await this.cmd(`UID SEARCH ALL`);
     const m = r.match(/\*\s+SEARCH\s+([\d\s]+)/);
-    return m ? m[1].trim().split(/\s+/).filter(Boolean).map(Number) : [];
+    if (!m || !m[1].trim()) return [];
+    return m[1].trim().split(/\s+/).filter(Boolean).map(Number);
   }
 
-  async fetch(seq: number): Promise<string> {
+  async fetchUID(uid: number): Promise<string> {
     const tag = `A${++this.t}`;
-    await this.wr(`${tag} FETCH ${seq} RFC822\r\n`);
+    await this.wr(`${tag} UID FETCH ${uid} RFC822\r\n`);
     while (true) {
       const has = this.buf.includes(`\r\n${tag} OK`) || this.buf.includes(`\r\n${tag} NO`) || this.buf.includes(`\r\n${tag} BAD`);
       if (has) break;
@@ -168,7 +188,13 @@ class Imap {
     return msg;
   }
 
-  close() { try { this.c?.close(); } catch {} }
+  async logout() {
+    try { await this.cmd("LOGOUT"); } catch {}
+  }
+
+  close() {
+    try { this.c?.close(); } catch {}
+  }
 }
 
 async function processEmailBatch(job: any, mailbox: any, sb: any): Promise<{ synced: number; skipped: number; errors: number; completed: boolean }> {
@@ -179,11 +205,10 @@ async function processEmailBatch(job: any, mailbox: any, sb: any): Promise<{ syn
     .from("sync_state")
     .select("*")
     .eq("mailbox_id", mailbox.id)
-    .single();
+    .maybeSingle();
 
   if (!state) throw new Error("Sync state not found");
 
-  // Decrypt password
   let password = mailbox.encrypted_password;
   if (mailbox.encrypted_password_secure) {
     try {
@@ -221,28 +246,29 @@ async function processEmailBatch(job: any, mailbox: any, sb: any): Promise<{ syn
     await imap.login(mailbox.username, password);
     await imap.select("INBOX");
 
-    const allSeqs = await imap.searchSeq();
-    const sortedSeqs = [...allSeqs].sort((a, b) => b - a);
+    const allUIDs = await imap.searchAllUIDs();
+    const sortedUIDs = [...allUIDs].sort((a, b) => b - a);
 
     const processedCount = job.progress?.processed || 0;
-    const remainingSeqs = sortedSeqs.slice(processedCount, processedCount + batchSize);
+    const remainingUIDs = sortedUIDs.slice(processedCount, processedCount + batchSize);
 
-    if (remainingSeqs.length === 0) {
+    if (remainingUIDs.length === 0) {
       completed = true;
+      await imap.logout();
       imap.close();
       return { synced, skipped, errors, completed };
     }
 
-    console.log(`[${mailbox.name}] Processing batch: ${remainingSeqs.length} emails (offset: ${processedCount})`);
+    console.log(`[${mailbox.name}] Processing batch: ${remainingUIDs.length} emails (offset: ${processedCount})`);
 
-    for (const seq of remainingSeqs) {
+    for (const uid of remainingUIDs) {
       if (Date.now() - startTime > EXECUTION_TIMEOUT) {
         console.log(`[${mailbox.name}] Timeout approaching, stopping batch`);
         break;
       }
 
       try {
-        const raw = await imap.fetch(seq);
+        const raw = await imap.fetchUID(uid);
         if (!raw) {
           errors++;
           continue;
@@ -250,7 +276,7 @@ async function processEmailBatch(job: any, mailbox: any, sb: any): Promise<{ syn
 
         const hi = raw.indexOf("\r\n\r\n");
         const hdr = parseHeaders(hi >= 0 ? raw.substring(0, hi) : raw);
-        const mid = (hdr["message-id"] || "").replace(/[<>]/g, "").trim() || `seq-${seq}-${mailbox.id}`;
+        const mid = (hdr["message-id"] || "").replace(/[<>]/g, "").trim() || `uid-${uid}-${mailbox.id}`;
 
         const subj = decHdr(hdr["subject"] || "");
         const from = parseAddr(decHdr(hdr["from"] || ""));
@@ -332,11 +358,12 @@ async function processEmailBatch(job: any, mailbox: any, sb: any): Promise<{ syn
         synced++;
       } catch (e) {
         errors++;
-        console.error(`[${mailbox.name}] Error processing seq ${seq}:`, e);
+        console.error(`[${mailbox.name}] Error processing UID ${uid}:`, e);
       }
     }
 
-    completed = (processedCount + remainingSeqs.length) >= sortedSeqs.length;
+    completed = (processedCount + remainingUIDs.length) >= sortedUIDs.length;
+    await imap.logout();
     imap.close();
 
   } catch (err) {
@@ -352,6 +379,8 @@ Deno.serve(async (req: Request) => {
     return new Response(null, { status: 200, headers: cors });
   }
 
+  let jobId: string | undefined;
+
   try {
     const sb = createClient(
       Deno.env.get("SUPABASE_URL")!,
@@ -359,9 +388,9 @@ Deno.serve(async (req: Request) => {
     );
 
     const body = await req.json().catch(() => ({}));
-    const { job_id } = body;
+    jobId = body.job_id;
 
-    if (!job_id) {
+    if (!jobId) {
       return new Response(
         JSON.stringify({ error: "job_id is required" }),
         { status: 400, headers: { ...cors, "Content-Type": "application/json" } }
@@ -371,7 +400,7 @@ Deno.serve(async (req: Request) => {
     const { data: job, error: jobError } = await sb
       .from("sync_jobs")
       .select("*")
-      .eq("id", job_id)
+      .eq("id", jobId)
       .maybeSingle();
 
     if (jobError || !job) {
@@ -392,7 +421,7 @@ Deno.serve(async (req: Request) => {
       status: "processing",
       started_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-    }).eq("id", job_id);
+    }).eq("id", jobId);
 
     await sb.from("sync_state").update({
       is_syncing: true,
@@ -410,7 +439,7 @@ Deno.serve(async (req: Request) => {
         status: "failed",
         error_message: "Mailbox not found",
         completed_at: new Date().toISOString(),
-      }).eq("id", job_id);
+      }).eq("id", jobId);
 
       await sb.from("sync_state").update({ is_syncing: false }).eq("mailbox_id", job.mailbox_id);
 
@@ -425,7 +454,7 @@ Deno.serve(async (req: Request) => {
         status: "failed",
         error_message: "No password configured",
         completed_at: new Date().toISOString(),
-      }).eq("id", job_id);
+      }).eq("id", jobId);
 
       await sb.from("sync_state").update({ is_syncing: false }).eq("mailbox_id", job.mailbox_id);
 
@@ -452,7 +481,7 @@ Deno.serve(async (req: Request) => {
         progress: newProgress,
         completed_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-      }).eq("id", job_id);
+      }).eq("id", jobId);
 
       await sb.from("sync_state").update({
         is_syncing: false,
@@ -467,7 +496,7 @@ Deno.serve(async (req: Request) => {
         status: "pending",
         progress: newProgress,
         updated_at: new Date().toISOString(),
-      }).eq("id", job_id);
+      }).eq("id", jobId);
 
       await sb.from("sync_state").update({
         is_syncing: false,
@@ -480,7 +509,7 @@ Deno.serve(async (req: Request) => {
     return new Response(
       JSON.stringify({
         success: true,
-        job_id: job_id,
+        job_id: jobId,
         completed: result.completed,
         progress: newProgress,
       }),
@@ -490,41 +519,42 @@ Deno.serve(async (req: Request) => {
   } catch (err: any) {
     console.error("Error processing sync job:", err);
 
-    const body = await req.json().catch(() => ({}));
-    const { job_id } = body;
+    if (jobId) {
+      try {
+        const sb = createClient(
+          Deno.env.get("SUPABASE_URL")!,
+          Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+        );
 
-    if (job_id) {
-      const sb = createClient(
-        Deno.env.get("SUPABASE_URL")!,
-        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-      );
+        const { data: job } = await sb.from("sync_jobs").select("*").eq("id", jobId).maybeSingle();
 
-      const { data: job } = await sb.from("sync_jobs").select("*").eq("id", job_id).maybeSingle();
+        if (job) {
+          const retryCount = (job.retry_count || 0) + 1;
+          const maxRetries = job.max_retries || 3;
 
-      if (job) {
-        const retryCount = (job.retry_count || 0) + 1;
-        const maxRetries = job.max_retries || 3;
+          if (retryCount < maxRetries) {
+            await sb.from("sync_jobs").update({
+              status: "pending",
+              retry_count: retryCount,
+              error_message: err.message,
+              updated_at: new Date().toISOString(),
+            }).eq("id", jobId);
+          } else {
+            await sb.from("sync_jobs").update({
+              status: "failed",
+              retry_count: retryCount,
+              error_message: err.message,
+              completed_at: new Date().toISOString(),
+            }).eq("id", jobId);
+          }
 
-        if (retryCount < maxRetries) {
-          await sb.from("sync_jobs").update({
-            status: "pending",
-            retry_count: retryCount,
-            error_message: err.message,
-            updated_at: new Date().toISOString(),
-          }).eq("id", job_id);
-        } else {
-          await sb.from("sync_jobs").update({
-            status: "failed",
-            retry_count: retryCount,
-            error_message: err.message,
-            completed_at: new Date().toISOString(),
-          }).eq("id", job_id);
+          await sb.from("sync_state").update({
+            is_syncing: false,
+            last_error: err.message,
+          }).eq("mailbox_id", job.mailbox_id);
         }
-
-        await sb.from("sync_state").update({
-          is_syncing: false,
-          last_error: err.message,
-        }).eq("mailbox_id", job.mailbox_id);
+      } catch (recoveryErr) {
+        console.error("Failed to update job status after error:", recoveryErr);
       }
     }
 

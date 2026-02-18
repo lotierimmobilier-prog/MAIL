@@ -26,7 +26,6 @@ export default function EmailComposer({ ticket, emails, onClose, onSent }: Email
   const [selectedSignature, setSelectedSignature] = useState<string | null>(null);
 
   useEffect(() => {
-    handleSuggestResponse();
     loadSignatures();
   }, []);
 
@@ -212,28 +211,21 @@ export default function EmailComposer({ ticket, emails, onClose, onSent }: Email
           body: inlineHtml,
           ticketId: ticket.id,
           inReplyToMessageId: latestInboundEmail?.message_id,
-          attachments: attachments.map(a => ({
-            filename: a.filename,
-            content_type: a.content_type,
-            storage_path: a.storage_path
-          }))
+          idempotencyKey: `<${crypto.randomUUID()}@send>`,
         })
       });
 
       const result = await response.json();
 
       if (!response.ok) {
-        console.error('Erreur envoi email:', result);
-        alert(`Erreur: ${result.error || 'Erreur lors de l\'envoi de l\'email'}`);
+          alert(`Erreur: ${result.error || 'Erreur lors de l\'envoi de l\'email'}`);
         return;
       }
 
-      console.log('Email envoyé:', result);
       alert('Email envoyé avec succès');
       onSent();
       onClose();
     } catch (error) {
-      console.error('Exception envoi email:', error);
       alert(`Erreur: ${error instanceof Error ? error.message : 'Erreur lors de l\'envoi de l\'email'}`);
     } finally {
       setSending(false);

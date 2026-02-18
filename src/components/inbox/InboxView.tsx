@@ -66,53 +66,44 @@ export default function InboxView() {
       supabase.from('mailboxes').select('*').order('name'),
     ]);
 
-    console.log('[InboxView] Load results:', {
-      tickets: ticketRes.data?.length || 0,
-      ticketsError: ticketRes.error,
-      categories: catRes.data?.length || 0,
-      categoriesError: catRes.error,
-      mailboxes: mbRes.data?.length || 0,
-      mailboxesError: mbRes.error,
-    });
-
     if (ticketRes.data) {
       setTickets(ticketRes.data);
 
       const ticketIds = ticketRes.data.map(t => t.id);
 
-      const [attachmentsRes, classificationsRes] = await Promise.all([
-        supabase.from('attachments').select('email_id'),
-        supabase
-          .from('ai_classifications')
-          .select('ticket_id, category, subcategory, priority, confidence')
-          .in('ticket_id', ticketIds)
-          .order('created_at', { ascending: false })
-      ]);
+      if (ticketIds.length > 0) {
+        const [attachmentsRes, classificationsRes] = await Promise.all([
+          supabase
+            .from('emails')
+            .select('ticket_id, attachments(id)')
+            .in('ticket_id', ticketIds)
+            .not('attachments', 'is', null),
+          supabase
+            .from('ai_classifications')
+            .select('ticket_id, category, subcategory, priority, confidence')
+            .in('ticket_id', ticketIds)
+            .order('created_at', { ascending: false })
+        ]);
 
-      if (classificationsRes.data) {
-        const classMap = new Map<string, AiClassification>();
-        classificationsRes.data.forEach(cls => {
-          if (!classMap.has(cls.ticket_id)) {
-            classMap.set(cls.ticket_id, cls as AiClassification);
-          }
-        });
-        setAiClassifications(classMap);
-      }
-
-      if (attachmentsRes.data && attachmentsRes.data.length > 0) {
-        const emailIds = attachmentsRes.data.map(a => a.email_id);
-        const { data: emailsWithAttachments } = await supabase
-          .from('emails')
-          .select('ticket_id')
-          .in('ticket_id', ticketIds)
-          .in('id', emailIds);
-
-        if (emailsWithAttachments) {
-          const uniqueTicketIds = [...new Set(emailsWithAttachments.map(e => e.ticket_id).filter(Boolean))];
-          setTicketAttachments(new Set(uniqueTicketIds));
+        if (classificationsRes.data) {
+          const classMap = new Map<string, AiClassification>();
+          classificationsRes.data.forEach(cls => {
+            if (!classMap.has(cls.ticket_id)) {
+              classMap.set(cls.ticket_id, cls as AiClassification);
+            }
+          });
+          setAiClassifications(classMap);
         }
-      } else {
-        setTicketAttachments(new Set());
+
+        if (attachmentsRes.data) {
+          const ticketsWithAttachments = new Set(
+            attachmentsRes.data
+              .filter(e => e.attachments && (e.attachments as any[]).length > 0)
+              .map(e => e.ticket_id)
+              .filter(Boolean)
+          );
+          setTicketAttachments(ticketsWithAttachments as Set<string>);
+        }
       }
     }
     if (catRes.data) setCategories(catRes.data);
@@ -125,25 +116,6 @@ export default function InboxView() {
   useEffect(() => { loadData(); }, [loadData]);
 
   useEffect(() => {
-    const processQueueInterval = setInterval(async () => {
-      try {
-        const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/process-classification-queue`;
-        await fetch(apiUrl, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-          },
-        });
-      } catch (err) {
-        console.debug('[InboxView] Queue processing check (non-blocking)');
-      }
-    }, 30000);
-
-    return () => clearInterval(processQueueInterval);
-  }, []);
-
-  useEffect(() => {
     const channel = supabase
       .channel('ai_classifications_updates')
       .on(
@@ -154,8 +126,6 @@ export default function InboxView() {
           table: 'ai_classifications'
         },
         async (payload) => {
-          console.log('[InboxView] New AI classification received:', payload);
-
           const ticketId = payload.new.ticket_id;
           const classification = {
             ticket_id: ticketId,

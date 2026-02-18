@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 
 export function useMailboxSync() {
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const isSyncingRef = useRef(false);
 
   useEffect(() => {
     async function setupSync() {
@@ -16,6 +17,9 @@ export function useMailboxSync() {
       const intervalMs = intervalSeconds * 1000;
 
       async function syncMailboxes() {
+        if (isSyncingRef.current) return;
+        isSyncingRef.current = true;
+
         try {
           const { data: mailboxes } = await supabase
             .from('mailboxes')
@@ -24,44 +28,36 @@ export function useMailboxSync() {
 
           if (!mailboxes || mailboxes.length === 0) return;
 
-          const createJobUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-sync-job`;
           const headers = {
             'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
             'Content-Type': 'application/json',
           };
 
-          await fetch(createJobUrl, {
+          const createJobUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-sync-job`;
+          const createRes = await fetch(createJobUrl, {
             method: 'POST',
             headers,
             body: JSON.stringify({ batch_size: 30 })
           });
 
-          setTimeout(async () => {
-            try {
-              const workerUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/job-worker`;
-              await fetch(workerUrl, {
-                method: 'POST',
-                headers,
-              });
+          if (!createRes.ok) return;
 
-              setTimeout(async () => {
-                try {
-                  const draftQueueUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/process-draft-queue`;
-                  await fetch(draftQueueUrl, {
-                    method: 'POST',
-                    headers,
-                  });
-                } catch (error) {
-                  console.error('Erreur lors de la génération automatique des brouillons:', error);
-                }
-              }, 3000);
-            } catch (error) {
-              console.error('Erreur lors du déclenchement du worker:', error);
-            }
-          }, 2000);
+          const workerUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/job-worker`;
+          await fetch(workerUrl, {
+            method: 'POST',
+            headers,
+          });
+
+          const draftQueueUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/process-draft-queue`;
+          await fetch(draftQueueUrl, {
+            method: 'POST',
+            headers,
+          }).catch(() => {});
 
         } catch (error) {
-          console.error('Erreur lors de la synchronisation des boîtes mail:', error);
+          console.error('Sync error:', error);
+        } finally {
+          isSyncingRef.current = false;
         }
       }
 

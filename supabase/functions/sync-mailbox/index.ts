@@ -279,7 +279,13 @@ async function syncOvhMailbox(mb: any, sb: any, syncState: any, maxEmailsPerBatc
 }
 
 function stripRe(s: string): string {
-  return s.replace(/^(Re|Fwd|Fw|TR|AW|Ref):\s*/gi, "").trim();
+  let prev = "";
+  let result = s;
+  while (result !== prev) {
+    prev = result;
+    result = result.replace(/^(Re|Fwd|Fw|TR|AW|Ref):\s*/gi, "").trim();
+  }
+  return result;
 }
 
 function decHdr(raw: string): string {
@@ -402,14 +408,25 @@ class Imap {
   private dec = new TextDecoder();
 
   async open(host: string, port: number) {
-    this.c = await Deno.connectTls({ hostname: host, port });
+    const conn = await Promise.race([
+      Deno.connectTls({ hostname: host, port }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("IMAP connection timeout")), 10000)
+      )
+    ]);
+    this.c = conn;
     const g = await this.line();
     if (!g.includes("OK") && !g.startsWith("*")) throw new Error("Bad greeting: " + g);
   }
 
   private async rd() {
     const b = new Uint8Array(32768);
-    const n = await this.c!.read(b);
+    const n = await Promise.race([
+      this.c!.read(b),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("IMAP read timeout")), 15000)
+      )
+    ]);
     if (n === null) throw new Error("Connection closed");
     this.buf += this.dec.decode(b.subarray(0, n));
   }
@@ -477,6 +494,10 @@ class Imap {
     return msg;
   }
 
+  async logout() {
+    try { await this.cmd("LOGOUT"); } catch {}
+  }
+
   close() { try { this.c?.close(); } catch {} }
 }
 
@@ -484,7 +505,7 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 200, headers: cors });
 
   const startTime = Date.now();
-  const MAX_EXECUTION_TIME = 4000;
+  const MAX_EXECUTION_TIME = 25000;
 
   const isTimeout = () => Date.now() - startTime > MAX_EXECUTION_TIME;
 
@@ -728,6 +749,7 @@ Deno.serve(async (req: Request) => {
           }
         }
 
+        await imap.logout();
         imap.close();
 
         const hasMore = unprocessedUIDs.length > maxEmailsPerBatch;

@@ -33,8 +33,10 @@ export function useSyncProgress() {
         .maybeSingle();
 
       if (syncStates) {
-        const totalEmails = syncStates.last_sequence_number || syncStates.last_uid || 100;
         const syncedEmails = syncStates.total_emails_synced || 0;
+        const lastUid = syncStates.last_uid || 0;
+        const lastSeq = syncStates.last_sequence_number || 0;
+        const totalEmails = Math.max(lastSeq, lastUid, syncedEmails + 1);
         const progress = totalEmails > 0 ? Math.min(Math.round((syncedEmails / totalEmails) * 100), 99) : 0;
 
         setSyncProgress({
@@ -45,12 +47,15 @@ export function useSyncProgress() {
           syncedEmails,
         });
       } else {
-        setSyncProgress({
-          isSyncing: false,
-          progress: 0,
-          mailboxName: null,
-          totalEmails: 0,
-          syncedEmails: 0,
+        setSyncProgress(prev => {
+          if (!prev.isSyncing) return prev;
+          return {
+            isSyncing: false,
+            progress: 0,
+            mailboxName: null,
+            totalEmails: 0,
+            syncedEmails: 0,
+          };
         });
       }
     };
@@ -72,11 +77,8 @@ export function useSyncProgress() {
       )
       .subscribe();
 
-    const interval = setInterval(checkSyncState, 3000);
-
     return () => {
       subscription.unsubscribe();
-      clearInterval(interval);
     };
   }, []);
 

@@ -15,6 +15,7 @@ interface SendEmailRequest {
   body: string;
   ticketId?: string;
   inReplyToMessageId?: string;
+  idempotencyKey?: string;
 }
 
 async function sendViaSMTP(
@@ -31,14 +32,6 @@ async function sendViaSMTP(
   messageId: string,
   inReplyTo?: string
 ) {
-  console.log(`Tentative d'envoi via SMTP: ${smtpHost}:${smtpPort} (${smtpSecurity})`);
-
-  console.log('=== ENCODING DEBUG ===');
-  console.log('Subject (first 50 chars):', subject.substring(0, 50));
-  console.log('Subject codepoints:', [...subject.substring(0, 20)].map(c => `${c}:U+${c.charCodeAt(0).toString(16).toUpperCase()}`).join(' '));
-  console.log('TextBody (first 100 chars):', textBody.substring(0, 100));
-  console.log('TextBody sample codepoints:', [...textBody.substring(0, 30)].map(c => `${c}:U+${c.charCodeAt(0).toString(16).toUpperCase()}`).join(' '));
-
   let secure = false;
   let requireTLS = false;
 
@@ -64,17 +57,7 @@ async function sendViaSMTP(
       rejectUnauthorized: true,
       minVersion: 'TLSv1.2'
     },
-    debug: true,
-    logger: true
   };
-
-  console.log('Configuration SMTP:', JSON.stringify({
-    host: smtpHost,
-    port: smtpPort,
-    secure,
-    requireTLS,
-    user: username
-  }));
 
   const transporter = nodemailer.createTransport(transportConfig);
 
@@ -106,23 +89,8 @@ async function sendViaSMTP(
     mailOptions.references = inReplyTo;
   }
 
-  try {
-    console.log('Envoi de l\'email...');
-    console.log('MailOptions encoding:', mailOptions.encoding, mailOptions.textEncoding);
-    const result = await transporter.sendMail(mailOptions);
-    console.log('Email envoyé avec succès:', result);
-    console.log('=== END ENCODING DEBUG ===');
-    return result;
-  } catch (error) {
-    console.error('Erreur détaillée SMTP:', {
-      message: error instanceof Error ? error.message : 'Unknown error',
-      code: (error as any).code,
-      command: (error as any).command,
-      response: (error as any).response,
-      responseCode: (error as any).responseCode
-    });
-    throw error;
-  }
+  const result = await transporter.sendMail(mailOptions);
+  return result;
 }
 
 Deno.serve(async (req: Request) => {
@@ -161,7 +129,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const body: SendEmailRequest = await req.json();
-    const { mailboxId, to, subject, body: emailBody, ticketId, inReplyToMessageId } = body;
+    const { mailboxId, to, subject, body: emailBody, ticketId, inReplyToMessageId, idempotencyKey } = body;
 
     if (!mailboxId || !to || !subject || !emailBody) {
       return new Response(
@@ -174,6 +142,26 @@ Deno.serve(async (req: Request) => {
       Deno.env.get("SUPABASE_URL") ?? "",
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
     );
+
+    if (idempotencyKey) {
+      const { data: existing } = await supabaseAdmin
+        .from("emails")
+        .select("id, message_id")
+        .eq("message_id", idempotencyKey)
+        .maybeSingle();
+
+      if (existing) {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            message: "Email déjà envoyé (doublon détecté)",
+            messageId: existing.message_id,
+            deduplicated: true
+          }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
 
     const { data: mailbox } = await supabaseAdmin
       .from("mailboxes")
@@ -209,7 +197,6 @@ Deno.serve(async (req: Request) => {
         const decryptData = await decryptRes.json();
         password = decryptData.result;
       } else {
-        console.error('Failed to decrypt password');
         throw new Error('Failed to decrypt mailbox credentials');
       }
     }
@@ -236,9 +223,12 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    const messageId = `<${crypto.randomUUID()}@${mailbox.email_address.split('@')[1]}>`;
+    const messageId = idempotencyKey || `<${crypto.randomUUID()}@${mailbox.email_address.split('@')[1]}>`;
 
-    const isHtml = emailBody.includes('<p>') || emailBody.includes('<br>') || emailBody.includes('<div>');
+    const isHtml = emailBody.includes('<p>') || emailBody.includes('<br') || emailBody.includes('<div>') ||
+      emailBody.includes('<table') || emailBody.includes('<span') || emailBody.includes('<strong') ||
+      emailBody.includes('<ul') || emailBody.includes('<ol') || emailBody.includes('<h1') ||
+      emailBody.includes('<h2') || emailBody.includes('<h3');
 
     let textBody: string;
     let htmlBody: string;
@@ -248,12 +238,50 @@ Deno.serve(async (req: Request) => {
         .replace(/<br\s*\/?>/gi, '\n')
         .replace(/<\/p>/gi, '\n\n')
         .replace(/<[^>]*>/g, '')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
         .replace(/\n\n+/g, '\n\n')
         .trim();
       htmlBody = emailBody;
     } else {
       textBody = emailBody;
       htmlBody = emailBody.replace(/\n/g, '<br>');
+    }
+
+    const { error: insertError, data: insertedEmail } = await supabaseAdmin
+      .from("emails")
+      .insert({
+        mailbox_id: mailboxId,
+        ticket_id: ticketId || null,
+        message_id: messageId,
+        from_address: mailbox.email_address,
+        from_name: mailbox.name,
+        to_addresses: [to],
+        subject: subject,
+        body_text: textBody,
+        body_html: htmlBody,
+        direction: 'outbound',
+        received_at: new Date().toISOString(),
+        in_reply_to: inReplyToMessageId || null
+      })
+      .select("id")
+      .single();
+
+    if (insertError) {
+      if (insertError.code === '23505') {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            message: "Email déjà envoyé (doublon détecté)",
+            messageId: messageId,
+            deduplicated: true
+          }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      throw new Error(`Erreur lors de la sauvegarde de l'email: ${insertError.message}`);
     }
 
     try {
@@ -272,38 +300,18 @@ Deno.serve(async (req: Request) => {
         inReplyToMessageId
       );
     } catch (smtpError) {
-      console.error("Erreur SMTP:", smtpError);
+      if (insertedEmail?.id) {
+        await supabaseAdmin.from("emails").delete().eq("id", insertedEmail.id);
+      }
       throw new Error(`Erreur lors de l'envoi SMTP: ${smtpError instanceof Error ? smtpError.message : "Erreur inconnue"}`);
     }
 
-    const { error: insertError } = await supabaseClient
-      .from("emails")
-      .insert({
-        mailbox_id: mailboxId,
-        ticket_id: ticketId,
-        message_id: messageId,
-        from_address: mailbox.email_address,
-        from_name: mailbox.name,
-        to_addresses: [to],
-        subject: subject,
-        body_text: emailBody,
-        body_html: emailBody.replace(/\n/g, '<br>'),
-        direction: 'outbound',
-        received_at: new Date().toISOString(),
-        in_reply_to: inReplyToMessageId
-      });
-
-    if (insertError) {
-      console.error("Erreur insertion email:", insertError);
-      throw new Error(`Erreur lors de la sauvegarde de l'email: ${insertError.message}`);
-    }
-
     if (ticketId) {
-      await supabaseClient
+      await supabaseAdmin
         .from("tickets")
         .update({
           updated_at: new Date().toISOString(),
-          last_response_at: new Date().toISOString()
+          last_message_at: new Date().toISOString()
         })
         .eq("id", ticketId);
     }
@@ -323,7 +331,7 @@ Deno.serve(async (req: Request) => {
       }
     );
   } catch (error) {
-    console.error("Erreur:", error);
+    console.error("Send email error:", error instanceof Error ? error.message : "Unknown");
     return new Response(
       JSON.stringify({ error: error instanceof Error ? error.message : "Erreur inconnue" }),
       {
