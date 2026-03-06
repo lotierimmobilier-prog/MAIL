@@ -1,6 +1,6 @@
 import { format } from 'date-fns';
 import { useState, useMemo } from 'react';
-import { ArrowDownLeft, ArrowUpRight, Paperclip, Code, FileText, StickyNote, FileDown } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, Paperclip, Code, FileText, StickyNote, FileDown, Image } from 'lucide-react';
 import type { Email, InternalNote } from '../../lib/types';
 import { formatFileSize } from '../../lib/constants';
 import { cleanEmailHtml, extractTextFromHtml, fixUtf8Encoding } from '../../lib/emailUtils';
@@ -17,6 +17,7 @@ type ConversationItem =
 
 export default function ConversationThread({ emails, notes = [] }: ConversationThreadProps) {
   const [viewModes, setViewModes] = useState<Record<string, 'html' | 'text' | 'raw'>>({});
+  const [imagesLoaded, setImagesLoaded] = useState<Record<string, boolean>>({});
 
   const conversationItems = useMemo(() => {
     const items: ConversationItem[] = [
@@ -42,6 +43,13 @@ export default function ConversationThread({ emails, notes = [] }: ConversationT
       const next = current === 'html' ? 'text' : current === 'text' ? 'raw' : 'html';
       return { ...prev, [emailId]: next };
     });
+  }
+
+  function toggleImagesLoaded(emailId: string) {
+    setImagesLoaded(prev => ({
+      ...prev,
+      [emailId]: !prev[emailId]
+    }));
   }
 
   return (
@@ -90,6 +98,8 @@ export default function ConversationThread({ emails, notes = [] }: ConversationT
         const isInbound = email.direction === 'inbound';
         const DirectionIcon = isInbound ? ArrowDownLeft : ArrowUpRight;
         const viewMode = viewModes[email.id] || 'html';
+        const showImages = imagesLoaded[email.id] || false;
+        const hasImages = email.body_html && email.body_html.includes('<img');
 
         return (
           <div
@@ -140,6 +150,20 @@ export default function ConversationThread({ emails, notes = [] }: ConversationT
                   <FileDown className="w-3.5 h-3.5" />
                   <span>PDF</span>
                 </button>
+                {hasImages && (
+                  <button
+                    onClick={() => toggleImagesLoaded(email.id)}
+                    className={`flex items-center gap-1 px-2 py-1 text-xs rounded transition ${
+                      showImages
+                        ? 'text-emerald-600 bg-emerald-50 hover:bg-emerald-100'
+                        : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
+                    }`}
+                    title={showImages ? 'Masquer les images' : 'Charger les images'}
+                  >
+                    <Image className="w-3 h-3" />
+                    <span>{showImages ? 'Images' : 'Charger'}</span>
+                  </button>
+                )}
                 {email.body_html && (
                   <button
                     onClick={() => toggleViewMode(email.id)}
@@ -180,13 +204,18 @@ export default function ConversationThread({ emails, notes = [] }: ConversationT
                 <div
                   className="prose prose-sm max-w-none text-slate-700 prose-headings:text-slate-900 prose-a:text-cyan-600 prose-p:my-2"
                   dangerouslySetInnerHTML={{
-                    __html: cleanEmailHtml(email.body_html)
+                    __html: showImages ? cleanEmailHtml(email.body_html) : cleanEmailHtml(email.body_html).replace(/<img[^>]*>/g, '')
                   }}
                 />
               ) : (
                 <pre className="text-sm text-slate-700 whitespace-pre-wrap font-sans leading-relaxed">
                   {fixUtf8Encoding(email.body_text || '') || 'Aucun contenu'}
                 </pre>
+              )}
+              {hasImages && !showImages && (
+                <div className="mt-3 p-3 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-600">
+                  <span className="text-slate-700 font-medium">Cet email contient des images.</span> Cliquez sur "Charger" pour les afficher.
+                </div>
               )}
             </div>
 
