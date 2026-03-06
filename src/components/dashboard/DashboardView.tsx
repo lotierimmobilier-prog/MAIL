@@ -11,6 +11,7 @@ import Badge from '../ui/Badge';
 import NewEmailModal from '../email/NewEmailModal';
 import { supabase } from '../../lib/supabase';
 import { getStatusConfig, getPriorityConfig } from '../../lib/constants';
+import { useMailboxPermissions } from '../../hooks/useMailboxPermissions';
 import type { Ticket } from '../../lib/types';
 
 interface MailboxStat {
@@ -26,6 +27,7 @@ interface MailboxStat {
 
 export default function DashboardView() {
   const navigate = useNavigate();
+  const { getReadableMailboxIds, loading: permsLoading } = useMailboxPermissions();
   const [selectedPeriod, setSelectedPeriod] = useState<Period>('week');
   const [recentTickets, setRecentTickets] = useState<Ticket[]>([]);
   const [counts, setCounts] = useState({ total: 0, unread: 0, untreated: 0, urgent: 0 });
@@ -89,70 +91,133 @@ export default function DashboardView() {
 
   async function loadDashboard() {
     const { startDate, endDate, previousStartDate, previousEndDate } = getPeriodDates(selectedPeriod);
+    const readableIds = getReadableMailboxIds();
 
-    const { data: tickets } = await supabase
+    if (readableIds && readableIds.size === 0) {
+      setRecentTickets([]);
+      setCounts({ total: 0, unread: 0, untreated: 0, urgent: 0 });
+      setPreviousCounts({ total: 0, unread: 0, untreated: 0, urgent: 0 });
+      setMailboxStats([]);
+      return;
+    }
+
+    let ticketsQuery = supabase
       .from('tickets')
       .select('*, category:categories(name, color), assignee:profiles!tickets_assignee_id_fkey(full_name)')
       .gte('created_at', startDate.toISOString())
-      .lte('created_at', endDate.toISOString())
+      .lte('created_at', endDate.toISOString());
+
+    if (readableIds && readableIds.size > 0) {
+      ticketsQuery = ticketsQuery.in('mailbox_id', Array.from(readableIds));
+    }
+
+    const { data: tickets } = await ticketsQuery
       .order('last_message_at', { ascending: false })
       .limit(8);
 
     if (tickets) setRecentTickets(tickets);
 
-    const { count: total } = await supabase
+    let countQuery = supabase
       .from('tickets')
       .select('*', { count: 'exact', head: true })
       .gte('created_at', startDate.toISOString())
       .lte('created_at', endDate.toISOString());
 
-    const { count: unread } = await supabase
+    if (readableIds && readableIds.size > 0) {
+      countQuery = countQuery.in('mailbox_id', Array.from(readableIds));
+    }
+
+    const { count: total } = await countQuery;
+
+    let unreadQuery = supabase
       .from('tickets')
       .select('*', { count: 'exact', head: true })
       .gte('created_at', startDate.toISOString())
       .lte('created_at', endDate.toISOString())
       .eq('is_read', false);
 
-    const { count: untreated } = await supabase
+    if (readableIds && readableIds.size > 0) {
+      unreadQuery = unreadQuery.in('mailbox_id', Array.from(readableIds));
+    }
+
+    const { count: unread } = await unreadQuery;
+
+    let untreatedQuery = supabase
       .from('tickets')
       .select('*', { count: 'exact', head: true })
       .gte('created_at', startDate.toISOString())
       .lte('created_at', endDate.toISOString())
       .in('status', ['new']);
 
-    const { count: urgent } = await supabase
+    if (readableIds && readableIds.size > 0) {
+      untreatedQuery = untreatedQuery.in('mailbox_id', Array.from(readableIds));
+    }
+
+    const { count: untreated } = await untreatedQuery;
+
+    let urgentQuery = supabase
       .from('tickets')
       .select('*', { count: 'exact', head: true })
       .gte('created_at', startDate.toISOString())
       .lte('created_at', endDate.toISOString())
       .eq('priority', 'urgent');
 
-    const { count: prevTotal } = await supabase
+    if (readableIds && readableIds.size > 0) {
+      urgentQuery = urgentQuery.in('mailbox_id', Array.from(readableIds));
+    }
+
+    const { count: urgent } = await urgentQuery;
+
+    let prevTotalQuery = supabase
       .from('tickets')
       .select('*', { count: 'exact', head: true })
       .gte('created_at', previousStartDate.toISOString())
       .lte('created_at', previousEndDate.toISOString());
 
-    const { count: prevUnread } = await supabase
+    if (readableIds && readableIds.size > 0) {
+      prevTotalQuery = prevTotalQuery.in('mailbox_id', Array.from(readableIds));
+    }
+
+    const { count: prevTotal } = await prevTotalQuery;
+
+    let prevUnreadQuery = supabase
       .from('tickets')
       .select('*', { count: 'exact', head: true })
       .gte('created_at', previousStartDate.toISOString())
       .lte('created_at', previousEndDate.toISOString())
       .eq('is_read', false);
 
-    const { count: prevUntreated } = await supabase
+    if (readableIds && readableIds.size > 0) {
+      prevUnreadQuery = prevUnreadQuery.in('mailbox_id', Array.from(readableIds));
+    }
+
+    const { count: prevUnread } = await prevUnreadQuery;
+
+    let prevUntreatedQuery = supabase
       .from('tickets')
       .select('*', { count: 'exact', head: true })
       .gte('created_at', previousStartDate.toISOString())
       .lte('created_at', previousEndDate.toISOString())
       .in('status', ['new']);
 
-    const { count: prevUrgent } = await supabase
+    if (readableIds && readableIds.size > 0) {
+      prevUntreatedQuery = prevUntreatedQuery.in('mailbox_id', Array.from(readableIds));
+    }
+
+    const { count: prevUntreated } = await prevUntreatedQuery;
+
+    let prevUrgentQuery = supabase
       .from('tickets')
       .select('*', { count: 'exact', head: true })
       .gte('created_at', previousStartDate.toISOString())
       .lte('created_at', previousEndDate.toISOString())
       .eq('priority', 'urgent');
+
+    if (readableIds && readableIds.size > 0) {
+      prevUrgentQuery = prevUrgentQuery.in('mailbox_id', Array.from(readableIds));
+    }
+
+    const { count: prevUrgent } = await prevUrgentQuery;
 
     setCounts({
       total: total ?? 0,
@@ -172,10 +237,21 @@ export default function DashboardView() {
   }
 
   async function loadMailboxStats(startDate: Date, endDate: Date, previousStartDate: Date, previousEndDate: Date) {
-    const { data: mailboxes } = await supabase
+    const readableIds = getReadableMailboxIds();
+
+    let mailboxesQuery = supabase
       .from('mailboxes')
       .select('id, name, email_address')
       .order('name');
+
+    if (readableIds && readableIds.size > 0) {
+      mailboxesQuery = mailboxesQuery.in('id', Array.from(readableIds));
+    } else if (readableIds && readableIds.size === 0) {
+      setMailboxStats([]);
+      return;
+    }
+
+    const { data: mailboxes } = await mailboxesQuery;
 
     if (!mailboxes) return;
 

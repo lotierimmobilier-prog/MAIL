@@ -58,23 +58,34 @@ export default function InboxView() {
   const loadData = useCallback(async (showRefresh = false) => {
     if (showRefresh) setRefreshing(true);
 
+    const readableIds = getReadableMailboxIds();
+
+    let ticketQuery = supabase
+      .from('tickets')
+      .select('*, category:categories(name, color), assignee:profiles!tickets_assignee_id_fkey(full_name, avatar_color), mailbox:mailboxes(name, email_address)')
+      .eq('archived', false)
+      .order('last_message_at', { ascending: false });
+
+    if (readableIds && readableIds.size > 0) {
+      ticketQuery = ticketQuery.in('mailbox_id', Array.from(readableIds));
+    } else if (readableIds && readableIds.size === 0) {
+      setTickets([]);
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
+
     const [ticketRes, catRes, mbRes] = await Promise.all([
-      supabase
-        .from('tickets')
-        .select('*, category:categories(name, color), assignee:profiles!tickets_assignee_id_fkey(full_name, avatar_color), mailbox:mailboxes(name, email_address)')
-        .eq('archived', false)
-        .order('last_message_at', { ascending: false }),
+      ticketQuery,
       supabase.from('categories').select('*').order('name'),
       supabase.from('mailboxes').select('*').eq('is_active', true).order('name'),
     ]);
 
     const activeMailboxIds = new Set((mbRes.data || []).map(m => m.id));
-    const readableIds = getReadableMailboxIds();
 
     if (ticketRes.data) {
       setTickets(ticketRes.data.filter(t => {
         if (!activeMailboxIds.has(t.mailbox_id)) return false;
-        if (readableIds && !readableIds.has(t.mailbox_id)) return false;
         return true;
       }));
 

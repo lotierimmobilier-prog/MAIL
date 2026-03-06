@@ -4,11 +4,13 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import Header from '../layout/Header';
 import { supabase } from '../../lib/supabase';
 import { TICKET_STATUSES, TICKET_PRIORITIES } from '../../lib/constants';
+import { useMailboxPermissions } from '../../hooks/useMailboxPermissions';
 
 interface StatusCount { status: string; count: number }
 interface PriorityCount { priority: string; count: number }
 
 export default function ReportsView() {
+  const { getReadableMailboxIds } = useMailboxPermissions();
   const [statusData, setStatusData] = useState<StatusCount[]>([]);
   const [priorityData, setPriorityData] = useState<PriorityCount[]>([]);
   const [totalTickets, setTotalTickets] = useState(0);
@@ -16,25 +18,48 @@ export default function ReportsView() {
   const [dateRange, setDateRange] = useState('7d');
 
   const loadReports = useCallback(async () => {
-    const { count } = await supabase.from('tickets').select('*', { count: 'exact', head: true });
+    const readableIds = getReadableMailboxIds();
+
+    if (readableIds && readableIds.size === 0) {
+      setTotalTickets(0);
+      setStatusData(TICKET_STATUSES.map(s => ({ status: s.label, count: 0 })));
+      setPriorityData(TICKET_PRIORITIES.map(p => ({ priority: p.label, count: 0 })));
+      setAvgResponseHours(0);
+      return;
+    }
+
+    let countQuery = supabase.from('tickets').select('*', { count: 'exact', head: true });
+    if (readableIds && readableIds.size > 0) {
+      countQuery = countQuery.in('mailbox_id', Array.from(readableIds));
+    }
+
+    const { count } = await countQuery;
     setTotalTickets(count ?? 0);
 
     const statusCounts: StatusCount[] = [];
     for (const s of TICKET_STATUSES) {
-      const { count: c } = await supabase.from('tickets').select('*', { count: 'exact', head: true }).eq('status', s.value);
+      let statusQuery = supabase.from('tickets').select('*', { count: 'exact', head: true }).eq('status', s.value);
+      if (readableIds && readableIds.size > 0) {
+        statusQuery = statusQuery.in('mailbox_id', Array.from(readableIds));
+      }
+      const { count: c } = await statusQuery;
       statusCounts.push({ status: s.label, count: c ?? 0 });
     }
     setStatusData(statusCounts);
 
     const priorityCounts: PriorityCount[] = [];
     for (const p of TICKET_PRIORITIES) {
-      const { count: c } = await supabase.from('tickets').select('*', { count: 'exact', head: true }).eq('priority', p.value);
+      let priorityQuery = supabase.from('tickets').select('*', { count: 'exact', head: true }).eq('priority', p.value);
+      if (readableIds && readableIds.size > 0) {
+        priorityQuery = priorityQuery.in('mailbox_id', Array.from(readableIds));
+      }
+      const { count: c } = await priorityQuery;
       priorityCounts.push({ priority: p.label, count: c ?? 0 });
     }
     setPriorityData(priorityCounts);
 
     setAvgResponseHours(2.4);
-  }, []);
+  }, [getReadableMailboxIds]);
 
   useEffect(() => { loadReports(); }, [loadReports]);
 
