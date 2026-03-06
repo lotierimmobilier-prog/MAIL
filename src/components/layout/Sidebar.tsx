@@ -31,7 +31,7 @@ const navItems: { to: string; icon: typeof LayoutDashboard; label: string; view:
 
 export default function Sidebar({ collapsed, onToggle, onCompose, mobileOpen, isMobile, onCloseMobile }: SidebarProps) {
   const { signOut, hasView, userFullName, userRole, canManage } = useAuth();
-  const { getReadableMailboxIds, getSendableMailboxIds } = useMailboxPermissions();
+  const { getReadableMailboxIds, getSendableMailboxIds, loading: permsLoading } = useMailboxPermissions();
   const [mailboxes, setMailboxes] = useState<Mailbox[]>([]);
   const [folders, setFolders] = useState<MailboxFolder[]>([]);
   const [expandedMailboxes, setExpandedMailboxes] = useState<Set<string>>(new Set());
@@ -44,6 +44,12 @@ export default function Sidebar({ collapsed, onToggle, onCompose, mobileOpen, is
     loadMailboxes();
     loadFolders();
   }, []);
+
+  useEffect(() => {
+    if (!permsLoading) {
+      loadMailboxes();
+    }
+  }, [permsLoading]);
 
   async function loadMailboxes() {
     const { data } = await supabase
