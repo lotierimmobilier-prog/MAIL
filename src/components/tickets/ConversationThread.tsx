@@ -17,7 +17,12 @@ type ConversationItem =
 
 export default function ConversationThread({ emails, notes = [] }: ConversationThreadProps) {
   const [viewModes, setViewModes] = useState<Record<string, 'html' | 'text' | 'raw'>>({});
-  const [imagesLoaded, setImagesLoaded] = useState<Record<string, boolean>>({});
+  const [imagesLoaded, setImagesLoaded] = useState<Record<string, boolean>>(
+    emails.reduce((acc, email) => {
+      acc[email.id] = true;
+      return acc;
+    }, {} as Record<string, boolean>)
+  );
 
   const conversationItems = useMemo(() => {
     const items: ConversationItem[] = [
@@ -158,10 +163,10 @@ export default function ConversationThread({ emails, notes = [] }: ConversationT
                         ? 'text-emerald-600 bg-emerald-50 hover:bg-emerald-100'
                         : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
                     }`}
-                    title={showImages ? 'Masquer les images' : 'Charger les images'}
+                    title={showImages ? 'Masquer les images' : 'Afficher les images'}
                   >
                     <Image className="w-3 h-3" />
-                    <span>{showImages ? 'Images' : 'Charger'}</span>
+                    <span>{showImages ? 'Masquer' : 'Images'}</span>
                   </button>
                 )}
                 {email.body_html && (
@@ -211,11 +216,6 @@ export default function ConversationThread({ emails, notes = [] }: ConversationT
                 <pre className="text-sm text-slate-700 whitespace-pre-wrap font-sans leading-relaxed">
                   {fixUtf8Encoding(email.body_text || '') || 'Aucun contenu'}
                 </pre>
-              )}
-              {hasImages && !showImages && (
-                <div className="mt-3 p-3 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-600">
-                  <span className="text-slate-700 font-medium">Cet email contient des images.</span> Cliquez sur "Charger" pour les afficher.
-                </div>
               )}
             </div>
 
