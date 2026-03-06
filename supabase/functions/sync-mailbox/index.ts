@@ -601,18 +601,37 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 200, headers: cors });
 
   const startTime = Date.now();
-  const MAX_EXECUTION_TIME = 25000;
+  const MAX_EXECUTION_TIME = 20000;
+  const TIMEOUT_BUFFER = 3000;
 
-  const isTimeout = () => Date.now() - startTime > MAX_EXECUTION_TIME;
+  const checkTimeout = (buffer: number = TIMEOUT_BUFFER): boolean => {
+    return Date.now() - startTime > MAX_EXECUTION_TIME - buffer;
+  };
+
+  const isTimeout = () => checkTimeout(0);
 
   try {
     console.log("SYNC START");
 
+    if (checkTimeout()) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: "Timeout: not enough compute resources available"
+      }), { status: 200, headers: { ...cors, "Content-Type": "application/json" } });
+    }
+
     const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     const body = await req.json().catch(() => ({}));
-    const maxEmailsPerBatch = body.batch_size || 100;
+    const maxEmailsPerBatch = Math.max(1, body.batch_size || 20);
 
     console.log("SYNC - Batch size:", maxEmailsPerBatch, "| Timeout:", MAX_EXECUTION_TIME, "ms (du plus récent au plus vieux)");
+
+    if (checkTimeout()) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: "Timeout: initialization took too long"
+      }), { status: 200, headers: { ...cors, "Content-Type": "application/json" } });
+    }
 
     let q = sb.from("mailboxes").select("*").eq("is_active", true);
     if (body.mailbox_id) q = q.eq("id", body.mailbox_id);
@@ -734,14 +753,19 @@ Deno.serve(async (req: Request) => {
         let synced = 0;
 
         for (const uid of uids) {
-          if (isTimeout()) {
-            console.log(`[${mb.name}] Timeout reached`);
+          if (checkTimeout()) {
+            console.log(`[${mb.name}] Timeout reached, stopping early`);
             break;
           }
 
           try {
             const raw = await imap.fetchUID(uid);
             if (!raw) continue;
+
+            if (checkTimeout()) {
+              console.log(`[${mb.name}] Timeout during fetch, stopping early`);
+              break;
+            }
 
             const hi = raw.indexOf("\r\n\r\n");
             const hdr = parseHeaders(hi >= 0 ? raw.substring(0, hi) : raw);

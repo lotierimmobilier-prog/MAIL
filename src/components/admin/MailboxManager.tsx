@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Edit3, Trash2, ToggleLeft, ToggleRight, Server, RefreshCw, Loader2, Zap, AlertCircle, Download } from 'lucide-react';
+import { Plus, CreditCard as Edit3, Trash2, ToggleLeft, ToggleRight, Server, RefreshCw, Loader2, Zap, AlertCircle, Download } from 'lucide-react';
 import Modal from '../ui/Modal';
 import { supabase } from '../../lib/supabase';
 import type { Mailbox } from '../../lib/types';
@@ -273,7 +273,10 @@ export default function MailboxManager() {
     setSyncResult(null);
   }
 
-  async function syncMailboxSafe(mb: Mailbox, startUID: number = 1): Promise<{ success: boolean; synced: number; hasMore: boolean; nextUID: number; error?: string }> {
+  async function syncMailboxSafeWithRetry(mb: Mailbox, startUID: number = 1, retryCount: number = 0): Promise<{ success: boolean; synced: number; hasMore: boolean; nextUID: number; error?: string }> {
+    const MAX_RETRIES = 3;
+    const BASE_DELAY = 2000;
+
     try {
       const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/sync-mailbox`;
 
@@ -285,11 +288,18 @@ export default function MailboxManager() {
         },
         body: JSON.stringify({
           mailbox_id: mb.id,
-          startUID: startUID
+          startUID: startUID,
+          batch_size: 20
         }),
       });
 
       if (!res.ok) {
+        if (res.status === 546 && retryCount < MAX_RETRIES) {
+          const delay = BASE_DELAY * Math.pow(2, retryCount);
+          console.warn(`[sync] WORKER_LIMIT error, retrying in ${delay}ms (attempt ${retryCount + 1}/${MAX_RETRIES})`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          return syncMailboxSafeWithRetry(mb, startUID, retryCount + 1);
+        }
         throw new Error(`HTTP ${res.status}: ${res.statusText}`);
       }
 
@@ -362,7 +372,7 @@ export default function MailboxManager() {
     while (hasMore && batchCount < maxBatches && isSyncing) {
       batchCount++;
 
-      const result = await syncMailboxSafe(mb, currentUID);
+      const result = await syncMailboxSafeWithRetry(mb, currentUID);
 
       if (result.success) {
         totalSynced += result.synced;
