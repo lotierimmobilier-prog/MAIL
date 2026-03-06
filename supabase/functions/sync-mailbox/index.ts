@@ -610,7 +610,7 @@ Deno.serve(async (req: Request) => {
 
     const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     const body = await req.json().catch(() => ({}));
-    const maxEmailsPerBatch = body.batch_size || 10;
+    const maxEmailsPerBatch = body.batch_size || 100;
 
     console.log("SYNC - Batch size:", maxEmailsPerBatch, "| Timeout:", MAX_EXECUTION_TIME, "ms (du plus récent au plus vieux)");
 
