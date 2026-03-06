@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Inbox, MailX, Clock, AlertTriangle, ArrowRight, RefreshCw, PenSquare, Loader2 } from 'lucide-react';
+import { Inbox, MailX, Clock, AlertTriangle, ArrowRight, RefreshCw, SquarePen as PenSquare, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { format, startOfDay, startOfWeek, startOfQuarter, startOfYear, endOfDay, subDays, subWeeks, subQuarters, subYears } from 'date-fns';
 import Header from '../layout/Header';
