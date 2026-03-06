@@ -10,7 +10,7 @@ interface MailboxPermission {
 }
 
 export function useMailboxPermissions() {
-  const { user, isAdmin, isManager } = useAuth();
+  const { user, isAdmin, isManager, userRole } = useAuth();
   const [permissions, setPermissions] = useState<MailboxPermission[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -21,6 +21,12 @@ export function useMailboxPermissions() {
     }
 
     async function load() {
+      if (isAdmin || isManager) {
+        setPermissions([]);
+        setLoading(false);
+        return;
+      }
+
       const { data } = await supabase
         .from('mailbox_permissions')
         .select('mailbox_id, can_read, can_send, can_manage')
@@ -31,7 +37,7 @@ export function useMailboxPermissions() {
     }
 
     load();
-  }, [user]);
+  }, [user, userRole]);
 
   function canReadMailbox(mailboxId: string): boolean {
     if (isAdmin || isManager) return true;
