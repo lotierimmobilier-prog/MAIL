@@ -128,11 +128,19 @@ export default function Sidebar({ collapsed, onToggle, onCompose, mobileOpen, is
           : `z-30 ${collapsed ? 'w-16' : 'w-60'}`
       }`}
     >
-      <div className="flex items-center gap-3 px-4 h-16 border-b border-slate-800 shrink-0">
-        <div className="w-8 h-8 rounded-lg bg-cyan-500 flex items-center justify-center shrink-0">
-          <Mail className="w-4 h-4 text-white" />
+      <div className={`flex flex-col items-center justify-center px-3 py-3 border-b border-slate-800 shrink-0 ${collapsed ? 'h-16' : 'min-h-fit'}`}>
+        <div className="bg-white rounded-lg p-2">
+          <img
+            src="/lotier.png"
+            alt="Lotier Immobilier"
+            className={`${collapsed ? 'w-10 h-10' : 'w-12 h-12'} object-contain`}
+          />
         </div>
-        {!collapsed && <span className="font-bold text-lg tracking-tight">LotierM@il</span>}
+        {!collapsed && (
+          <div className="text-center mt-2">
+            <p className="text-xs font-semibold text-slate-300 tracking-tight">messagerie IA+</p>
+          </div>
+        )}
       </div>
 
       {canSendAny && (
