@@ -40,6 +40,19 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    // Only admins can connect Gmail mailboxes
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    if (profile?.role !== "admin") {
+      return new Response(JSON.stringify({ error: "Seuls les administrateurs peuvent connecter une boîte Gmail" }), {
+        status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const { mailbox_id, redirect_uri } = await req.json();
 
     const clientId = Deno.env.get("GOOGLE_CLIENT_ID");

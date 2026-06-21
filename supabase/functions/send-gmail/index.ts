@@ -22,6 +22,12 @@ async function refreshAccessToken(clientId: string, clientSecret: string, refres
   return res.json();
 }
 
+interface Attachment {
+  filename: string;
+  content_type: string;
+  data: string; // base64
+}
+
 function buildRawEmail(params: {
   from: string;
   to: string;
@@ -30,32 +36,57 @@ function buildRawEmail(params: {
   textBody: string;
   messageId: string;
   inReplyTo?: string;
+  attachments?: Attachment[];
 }): string {
-  const boundary = `boundary_${crypto.randomUUID().replace(/-/g, "")}`;
+  const hasAttachments = params.attachments && params.attachments.length > 0;
+  const outerBoundary = `outer_${crypto.randomUUID().replace(/-/g, "")}`;
+  const innerBoundary = `inner_${crypto.randomUUID().replace(/-/g, "")}`;
+
   const lines = [
     `From: ${params.from}`,
     `To: ${params.to}`,
     `Subject: ${params.subject}`,
     `Message-ID: ${params.messageId}`,
     `MIME-Version: 1.0`,
-    `Content-Type: multipart/alternative; boundary="${boundary}"`,
   ];
   if (params.inReplyTo) {
     lines.push(`In-Reply-To: ${params.inReplyTo}`);
     lines.push(`References: ${params.inReplyTo}`);
   }
+
+  if (hasAttachments) {
+    lines.push(`Content-Type: multipart/mixed; boundary="${outerBoundary}"`);
+    lines.push("");
+    lines.push(`--${outerBoundary}`);
+    lines.push(`Content-Type: multipart/alternative; boundary="${innerBoundary}"`);
+  } else {
+    lines.push(`Content-Type: multipart/alternative; boundary="${innerBoundary}"`);
+  }
+
   lines.push("");
-  lines.push(`--${boundary}`);
+  lines.push(`--${innerBoundary}`);
   lines.push(`Content-Type: text/plain; charset="UTF-8"`);
   lines.push(`Content-Transfer-Encoding: quoted-printable`);
   lines.push("");
   lines.push(params.textBody);
-  lines.push(`--${boundary}`);
+  lines.push(`--${innerBoundary}`);
   lines.push(`Content-Type: text/html; charset="UTF-8"`);
   lines.push(`Content-Transfer-Encoding: quoted-printable`);
   lines.push("");
   lines.push(`<!DOCTYPE html><html><body>${params.htmlBody}</body></html>`);
-  lines.push(`--${boundary}--`);
+  lines.push(`--${innerBoundary}--`);
+
+  if (hasAttachments) {
+    for (const att of params.attachments!) {
+      lines.push(`--${outerBoundary}`);
+      lines.push(`Content-Type: ${att.content_type}; name="${att.filename}"`);
+      lines.push(`Content-Disposition: attachment; filename="${att.filename}"`);
+      lines.push(`Content-Transfer-Encoding: base64`);
+      lines.push("");
+      lines.push(att.data);
+    }
+    lines.push(`--${outerBoundary}--`);
+  }
 
   const raw = lines.join("\r\n");
   return btoa(unescape(encodeURIComponent(raw)))
@@ -90,12 +121,35 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const { mailboxId, to, subject, body: emailBody, ticketId, inReplyToMessageId } = await req.json();
+    const { mailboxId, to, subject, body: emailBody, ticketId, inReplyToMessageId, attachments: reqAttachments } = await req.json();
 
     const supabaseAdmin = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
     );
+
+    // Enforce send permissions (same as send-email)
+    const { data: profile } = await supabaseClient
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    if (profile?.role !== "admin" && profile?.role !== "manager") {
+      const { data: permission } = await supabaseClient
+        .from("mailbox_permissions")
+        .select("can_send")
+        .eq("mailbox_id", mailboxId)
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (!permission?.can_send) {
+        return new Response(
+          JSON.stringify({ error: "Vous n'avez pas la permission d'envoyer des emails depuis cette boîte mail" }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
 
     const { data: mailbox } = await supabaseAdmin
       .from("mailboxes")
@@ -133,6 +187,23 @@ Deno.serve(async (req: Request) => {
 
     const messageId = `<${crypto.randomUUID()}@${mailbox.email_address.split("@")[1]}>`;
 
+    // Download attachments from storage and encode as base64
+    const attachments: Attachment[] = [];
+    if (reqAttachments && reqAttachments.length > 0) {
+      for (const att of reqAttachments) {
+        const { data: fileData, error: dlError } = await supabaseAdmin.storage
+          .from("attachments")
+          .download(att.storage_path);
+        if (dlError || !fileData) {
+          console.error(`Failed to download attachment ${att.filename}:`, dlError);
+          continue;
+        }
+        const arrayBuffer = await fileData.arrayBuffer();
+        const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+        attachments.push({ filename: att.filename, content_type: att.content_type, data: base64 });
+      }
+    }
+
     const rawEmail = buildRawEmail({
       from: `${mailbox.name} <${mailbox.email_address}>`,
       to,
@@ -141,6 +212,7 @@ Deno.serve(async (req: Request) => {
       textBody,
       messageId,
       inReplyTo: inReplyToMessageId,
+      attachments,
     });
 
     const sendRes = await fetch(

@@ -121,19 +121,6 @@ Deno.serve(async (req: Request) => {
     let skipped = 0;
 
     for (const gmailMsgId of messageIds) {
-      // Check if already imported (use gmail message id as external_id)
-      const { data: existing } = await supabaseAdmin
-        .from("emails")
-        .select("id")
-        .eq("mailbox_id", mailbox_id)
-        .eq("message_id", gmailMsgId)
-        .maybeSingle();
-
-      if (existing) {
-        skipped++;
-        continue;
-      }
-
       const msg = await gmailFetch(accessToken, `/users/me/messages/${gmailMsgId}?format=full`);
       const headers = msg.payload?.headers || [];
 
@@ -141,8 +128,22 @@ Deno.serve(async (req: Request) => {
       const fromRaw = extractHeader(headers, "From");
       const toRaw = extractHeader(headers, "To");
       const dateRaw = extractHeader(headers, "Date");
-      const messageIdHeader = extractHeader(headers, "Message-ID") || gmailMsgId;
+      // Use RFC Message-ID for threading; fall back to Gmail API id
+      const rfcMessageId = extractHeader(headers, "Message-ID") || gmailMsgId;
       const inReplyTo = extractHeader(headers, "In-Reply-To") || null;
+
+      // Dedup by RFC Message-ID (primary) or Gmail API id
+      const { data: existing } = await supabaseAdmin
+        .from("emails")
+        .select("id")
+        .eq("mailbox_id", mailbox_id)
+        .or(`message_id.eq.${rfcMessageId},message_id.eq.${gmailMsgId}`)
+        .maybeSingle();
+
+      if (existing) {
+        skipped++;
+        continue;
+      }
 
       // Parse "Name <email>" format
       const fromMatch = fromRaw.match(/^(?:"?([^"<]*)"?\s*)?<?([^>]+)>?$/);
@@ -186,7 +187,7 @@ Deno.serve(async (req: Request) => {
       await supabaseAdmin.from("emails").insert({
         mailbox_id,
         ticket_id: ticketId,
-        message_id: gmailMsgId,
+        message_id: rfcMessageId,
         from_address: fromAddress,
         from_name: fromName,
         to_addresses: [toRaw],
