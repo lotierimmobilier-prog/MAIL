@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Connexion Gmail...</title>
+  <style>
+    body { font-family: sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #f8fafc; color: #334155; }
+    .box { text-align: center; padding: 2rem; }
+    .spinner { width: 2rem; height: 2rem; border: 3px solid #e2e8f0; border-top-color: #0891b2; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 1rem; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <div class="spinner"></div>
+    <p>Finalisation de la connexion Gmail...</p>
+  </div>
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    const state = params.get('state');
+    const error = params.get('error');
+
+    if (window.opener) {
+      window.opener.postMessage(
+        { type: 'gmail_oauth_callback', code, state, error },
+        window.location.origin
+      );
+      window.close();
+    } else {
+      document.querySelector('p').textContent = 'Erreur : impossible de communiquer avec la fenêtre parente.';
+    }
+  </script>
+</body>
+</html>

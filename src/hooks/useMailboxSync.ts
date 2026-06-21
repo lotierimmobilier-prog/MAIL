@@ -23,7 +23,7 @@ export function useMailboxSync() {
         try {
           const { data: mailboxes } = await supabase
             .from('mailboxes')
-            .select('id, email_address, is_active')
+            .select('id, email_address, is_active, provider_type')
             .eq('is_active', true);
 
           if (!mailboxes || mailboxes.length === 0) return;
@@ -32,6 +32,20 @@ export function useMailboxSync() {
             'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
             'Content-Type': 'application/json',
           };
+
+          // Sync Gmail mailboxes directly
+          const gmailMailboxes = mailboxes.filter((m: any) => m.provider_type === 'gmail');
+          for (const mb of gmailMailboxes) {
+            fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/sync-gmail`, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({ mailbox_id: mb.id }),
+            }).catch(() => {});
+          }
+
+          // Sync IMAP/OVH mailboxes via job worker
+          const nonGmailMailboxes = mailboxes.filter((m: any) => m.provider_type !== 'gmail');
+          if (nonGmailMailboxes.length === 0) return;
 
           const createJobUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-sync-job`;
           const createRes = await fetch(createJobUrl, {

@@ -1,0 +1,198 @@
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from "npm:@supabase/supabase-js@2.57.4";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
+};
+
+async function refreshAccessToken(clientId: string, clientSecret: string, refreshToken: string) {
+  const res = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      refresh_token: refreshToken,
+      grant_type: "refresh_token",
+    }),
+  });
+  if (!res.ok) throw new Error(`Token refresh failed: ${await res.text()}`);
+  return res.json();
+}
+
+function buildRawEmail(params: {
+  from: string;
+  to: string;
+  subject: string;
+  htmlBody: string;
+  textBody: string;
+  messageId: string;
+  inReplyTo?: string;
+}): string {
+  const boundary = `boundary_${crypto.randomUUID().replace(/-/g, "")}`;
+  const lines = [
+    `From: ${params.from}`,
+    `To: ${params.to}`,
+    `Subject: ${params.subject}`,
+    `Message-ID: ${params.messageId}`,
+    `MIME-Version: 1.0`,
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+  ];
+  if (params.inReplyTo) {
+    lines.push(`In-Reply-To: ${params.inReplyTo}`);
+    lines.push(`References: ${params.inReplyTo}`);
+  }
+  lines.push("");
+  lines.push(`--${boundary}`);
+  lines.push(`Content-Type: text/plain; charset="UTF-8"`);
+  lines.push(`Content-Transfer-Encoding: quoted-printable`);
+  lines.push("");
+  lines.push(params.textBody);
+  lines.push(`--${boundary}`);
+  lines.push(`Content-Type: text/html; charset="UTF-8"`);
+  lines.push(`Content-Transfer-Encoding: quoted-printable`);
+  lines.push("");
+  lines.push(`<!DOCTYPE html><html><body>${params.htmlBody}</body></html>`);
+  lines.push(`--${boundary}--`);
+
+  const raw = lines.join("\r\n");
+  return btoa(unescape(encodeURIComponent(raw)))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 200, headers: corsHeaders });
+  }
+
+  try {
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: "Non autorisé" }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const supabaseClient = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_ANON_KEY") ?? "",
+      { global: { headers: { Authorization: authHeader } } }
+    );
+
+    const { data: { user } } = await supabaseClient.auth.getUser();
+    if (!user) {
+      return new Response(JSON.stringify({ error: "Non autorisé" }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const { mailboxId, to, subject, body: emailBody, ticketId, inReplyToMessageId } = await req.json();
+
+    const supabaseAdmin = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+    );
+
+    const { data: mailbox } = await supabaseAdmin
+      .from("mailboxes")
+      .select("*")
+      .eq("id", mailboxId)
+      .eq("provider_type", "gmail")
+      .maybeSingle();
+
+    if (!mailbox) {
+      return new Response(JSON.stringify({ error: "Boîte Gmail introuvable" }), {
+        status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const clientId = Deno.env.get("GOOGLE_CLIENT_ID")!;
+    const clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET")!;
+
+    let accessToken = mailbox.gmail_access_token;
+    const tokenExpiry = mailbox.gmail_token_expiry ? new Date(mailbox.gmail_token_expiry) : null;
+
+    if (!tokenExpiry || tokenExpiry.getTime() < Date.now() + 60_000) {
+      const newTokens = await refreshAccessToken(clientId, clientSecret, mailbox.gmail_refresh_token);
+      accessToken = newTokens.access_token;
+      await supabaseAdmin.from("mailboxes").update({
+        gmail_access_token: accessToken,
+        gmail_token_expiry: new Date(Date.now() + newTokens.expires_in * 1000).toISOString(),
+      }).eq("id", mailboxId);
+    }
+
+    const isHtml = /<[a-z][\s\S]*>/i.test(emailBody);
+    const textBody = isHtml
+      ? emailBody.replace(/<br\s*\/?>/gi, "\n").replace(/<\/p>/gi, "\n\n").replace(/<[^>]*>/g, "").trim()
+      : emailBody;
+    const htmlBody = isHtml ? emailBody : emailBody.replace(/\n/g, "<br>");
+
+    const messageId = `<${crypto.randomUUID()}@${mailbox.email_address.split("@")[1]}>`;
+
+    const rawEmail = buildRawEmail({
+      from: `${mailbox.name} <${mailbox.email_address}>`,
+      to,
+      subject,
+      htmlBody,
+      textBody,
+      messageId,
+      inReplyTo: inReplyToMessageId,
+    });
+
+    const sendRes = await fetch(
+      "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ raw: rawEmail }),
+      }
+    );
+
+    if (!sendRes.ok) {
+      throw new Error(`Gmail send failed: ${await sendRes.text()}`);
+    }
+
+    const sentMsg = await sendRes.json();
+
+    // Store outbound email in DB
+    await supabaseAdmin.from("emails").insert({
+      mailbox_id: mailboxId,
+      ticket_id: ticketId || null,
+      message_id: sentMsg.id || messageId,
+      from_address: mailbox.email_address,
+      from_name: mailbox.name,
+      to_addresses: [to],
+      subject,
+      body_text: textBody,
+      body_html: htmlBody,
+      direction: "outbound",
+      received_at: new Date().toISOString(),
+      in_reply_to: inReplyToMessageId || null,
+    });
+
+    if (ticketId) {
+      await supabaseAdmin.from("tickets").update({
+        updated_at: new Date().toISOString(),
+        last_message_at: new Date().toISOString(),
+        status: "replied",
+      }).eq("id", ticketId);
+    }
+
+    return new Response(
+      JSON.stringify({ success: true, messageId: sentMsg.id }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  } catch (error) {
+    console.error("send-gmail error:", error);
+    return new Response(JSON.stringify({ error: (error as Error).message }), {
+      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+});

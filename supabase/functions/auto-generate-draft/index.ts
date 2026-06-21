@@ -20,12 +20,12 @@ Deno.serve(async (req: Request) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    const openaiKey = Deno.env.get("OPENAI_API_KEY");
+    const anthropicKey = Deno.env.get("ANTHROPIC_API_KEY");
 
-    if (!openaiKey) {
-      console.log("No OpenAI API key - skipping auto-draft generation");
+    if (!anthropicKey) {
+      console.log("No Anthropic API key - skipping auto-draft generation");
       return new Response(
-        JSON.stringify({ success: false, reason: "No OpenAI API key" }),
+        JSON.stringify({ success: false, reason: "No Anthropic API key" }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -157,9 +157,9 @@ Deno.serve(async (req: Request) => {
         ? "Utilise un ton chaleureux et amical tout en restant professionnel."
         : "Utilise un ton professionnel et courtois.";
 
-    const prompt = `Tu es un assistant qui genere automatiquement des brouillons de reponse pour une agence immobiliere.
+    const systemPrompt = `Tu es un assistant expert en relation client pour une agence immobiliere. Tu generes des brouillons de reponse professionnels en francais. Reponds UNIQUEMENT avec un objet JSON valide, sans backticks ni texte supplementaire.`;
 
-${toneInstruction}
+    const userPrompt = `${toneInstruction}
 
 CONTEXTE:
 Sujet: ${ticket.subject}
@@ -174,10 +174,10 @@ ${templatesContext}
 TACHE:
 Genere un brouillon de reponse professionnel et contextualise en t'inspirant des exemples precedents.
 
-Reponds au format JSON:
+Reponds avec ce JSON exact:
 {
   "subject": "Re: ${ticket.subject}",
-  "body": "La reponse au format HTML avec <p> et <br>",
+  "body": "La reponse au format HTML avec balises <p> et <br>",
   "confidence": 0.8,
   "notes": "Notes pour l'agent (points importants a verifier)"
 }
@@ -189,38 +189,29 @@ IMPORTANT:
 - ${mailbox?.signature ? `Utilise cette signature: ${mailbox.signature}` : "Termine avec 'Cordialement'"}
 - Sois specifique et personnalise`;
 
-    const openaiRes = await fetch(
-      "https://api.openai.com/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${openaiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          messages: [
-            {
-              role: "system",
-              content: "Tu es un assistant expert en relation client. Tu generes des brouillons de reponse professionnels en francais. Format JSON uniquement.",
-            },
-            { role: "user", content: prompt },
-          ],
-          temperature: 0.7,
-          max_tokens: 1500,
-          response_format: { type: "json_object" },
-        }),
-      }
-    );
+    const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": anthropicKey,
+        "anthropic-version": "2023-06-01",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 1500,
+        system: systemPrompt,
+        messages: [{ role: "user", content: userPrompt }],
+      }),
+    });
 
-    if (!openaiRes.ok) {
-      const errBody = await openaiRes.text();
-      console.error("OpenAI API error:", errBody);
-      throw new Error(`OpenAI API error ${openaiRes.status}`);
+    if (!claudeRes.ok) {
+      const errBody = await claudeRes.text();
+      console.error("Anthropic API error:", errBody);
+      throw new Error(`Anthropic API error ${claudeRes.status}`);
     }
 
-    const openaiData = await openaiRes.json();
-    const content = openaiData.choices?.[0]?.message?.content;
+    const claudeData = await claudeRes.json();
+    const content = claudeData.content?.[0]?.text;
 
     if (!content) {
       throw new Error("Aucune reponse generee");
@@ -256,18 +247,13 @@ IMPORTANT:
     }
 
     return new Response(
-      JSON.stringify({
-        success: true,
-        draft: draft,
-      }),
+      JSON.stringify({ success: true, draft }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
     console.error("Error in auto-generate-draft:", error);
     return new Response(
-      JSON.stringify({
-        error: error instanceof Error ? error.message : "Erreur inconnue",
-      }),
+      JSON.stringify({ error: error instanceof Error ? error.message : "Erreur inconnue" }),
       {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },

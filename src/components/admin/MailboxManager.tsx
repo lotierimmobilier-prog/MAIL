@@ -4,6 +4,7 @@ import Modal from '../ui/Modal';
 import { supabase } from '../../lib/supabase';
 import type { Mailbox } from '../../lib/types';
 import { callEdgeFunction } from '../../lib/edgeFunctionClient';
+import GmailConnectButton from './GmailConnectButton';
 
 let isSyncing = false;
 let syncStartTime = 0;
@@ -639,6 +640,7 @@ export default function MailboxManager() {
               className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500">
               <option value="imap">IMAP (Connexion directe)</option>
               <option value="ovh">OVH API</option>
+              <option value="gmail">Gmail (OAuth Google)</option>
             </select>
           </div>
 
@@ -655,7 +657,25 @@ export default function MailboxManager() {
             </div>
           </div>
 
-          {form.provider_type === 'ovh' ? (
+          {form.provider_type === 'gmail' ? (
+            <div className="border border-red-200 bg-red-50/30 rounded-lg p-4">
+              <h4 className="text-xs font-semibold text-red-900 uppercase tracking-wider mb-3 flex items-center gap-2">
+                <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor"><path d="M24 5.457v13.909c0 .904-.732 1.636-1.636 1.636h-3.819V11.73L12 16.64l-6.545-4.91v9.273H1.636A1.636 1.636 0 0 1 0 19.366V5.457c0-2.023 2.309-3.178 3.927-1.964L5.455 4.64 12 9.548l6.545-4.91 1.528-1.145C21.69 2.28 24 3.434 24 5.457z"/></svg>
+                Connexion Gmail via OAuth
+              </h4>
+              <p className="text-xs text-red-700 mb-4">
+                Connectez votre compte Gmail directement. Aucun mot de passe requis — connexion sécurisée via Google.
+              </p>
+              <GmailConnectButton
+                mailboxId={selected?.id}
+                onSuccess={(email) => {
+                  setForm(f => ({ ...f, email_address: email }));
+                  load();
+                  setEditOpen(false);
+                }}
+              />
+            </div>
+          ) : form.provider_type === 'ovh' ? (
             <div className="border border-blue-200 bg-blue-50/30 rounded-lg p-4">
               <h4 className="text-xs font-semibold text-blue-900 uppercase tracking-wider mb-3">Configuration OVH API</h4>
               <div className="space-y-3">

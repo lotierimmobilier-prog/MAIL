@@ -23,9 +23,9 @@ Deno.serve(async (req: Request) => {
       user_instruction,
     } = await req.json();
 
-    const openaiKey = Deno.env.get("OPENAI_API_KEY");
+    const anthropicKey = Deno.env.get("ANTHROPIC_API_KEY");
 
-    if (!openaiKey) {
+    if (!anthropicKey) {
       const name = contact_name || contact_email?.split("@")[0] || "";
       const fallbackDraft = `Bonjour${name ? ` ${name}` : ""},
 
@@ -59,9 +59,9 @@ L'equipe support`;
         ? "Utilise un ton chaleureux et amical tout en restant professionnel."
         : "Utilise un ton professionnel et courtois.";
 
-    const prompt = `Tu es un assistant professionnel qui redige des reponses par email en francais pour une agence immobiliere.
+    const systemPrompt = `Tu es un assistant de redaction d'emails professionnel pour une agence immobiliere francaise. Tu rediges TOUJOURS en francais. Tes reponses sont claires, polies et professionnelles. Tu reponds UNIQUEMENT avec le corps de l'email, sans commentaire supplementaire.`;
 
-${toneInstruction}
+    const userPrompt = `${toneInstruction}
 
 Sujet du ticket : ${ticket_subject}
 Contact : ${contact_name || "Inconnu"} <${contact_email || ""}>
@@ -69,38 +69,28 @@ ${signature ? `Signature a utiliser : ${signature}` : "Signe avec 'Cordialement'
 
 ${conversationContext ? `Historique de la conversation :\n\n${conversationContext}\n\n` : ""}${user_instruction ? `Instruction de l'utilisateur : ${user_instruction}\n\n` : ""}Redige une reponse professionnelle, claire et utile en francais. Commence par une salutation appropriee. Ne repete pas l'objet du mail. Sois concis mais complet. ${user_instruction ? "Respecte l'instruction de l'utilisateur pour le contenu du message." : ""} Si l'historique de conversation est fourni, reponds specifiquement au dernier message du client en tenant compte du contexte complet.`;
 
-    const openaiRes = await fetch(
-      "https://api.openai.com/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${openaiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          messages: [
-            {
-              role: "system",
-              content:
-                "Tu es un assistant de redaction d'emails professionnel pour une agence immobiliere francaise. Tu rediges TOUJOURS en francais. Tes reponses sont claires, polies et professionnelles.",
-            },
-            { role: "user", content: prompt },
-          ],
-          temperature: 0.7,
-          max_tokens: 1000,
-        }),
-      }
-    );
+    const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": anthropicKey,
+        "anthropic-version": "2023-06-01",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 1024,
+        system: systemPrompt,
+        messages: [{ role: "user", content: userPrompt }],
+      }),
+    });
 
-    if (!openaiRes.ok) {
-      const errBody = await openaiRes.text();
-      throw new Error(`OpenAI API error ${openaiRes.status}: ${errBody}`);
+    if (!claudeRes.ok) {
+      const errBody = await claudeRes.text();
+      throw new Error(`Anthropic API error ${claudeRes.status}: ${errBody}`);
     }
 
-    const openaiData = await openaiRes.json();
-    const draft =
-      openaiData.choices?.[0]?.message?.content ?? "Impossible de generer le brouillon.";
+    const claudeData = await claudeRes.json();
+    const draft = claudeData.content?.[0]?.text ?? "Impossible de generer le brouillon.";
 
     return new Response(JSON.stringify({ draft }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
