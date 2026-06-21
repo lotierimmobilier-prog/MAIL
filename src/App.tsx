@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import AppLayout from './components/layout/AppLayout';
 import LoginPage from './components/auth/LoginPage';
+import GmailCallbackPage from './components/auth/GmailCallbackPage';
 import DashboardView from './components/dashboard/DashboardView';
 import InboxView from './components/inbox/InboxView';
 import TicketDetailView from './components/tickets/TicketDetailView';
@@ -65,6 +66,7 @@ function AppRoutes() {
         <Route path="reports" element={<ViewGuard view="reports"><ReportsView /></ViewGuard>} />
         <Route path="admin" element={<ViewGuard view="admin"><AdminView /></ViewGuard>} />
       </Route>
+      <Route path="/gmail-callback" element={<GmailCallbackPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

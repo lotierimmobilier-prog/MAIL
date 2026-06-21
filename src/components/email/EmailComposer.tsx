@@ -199,13 +199,22 @@ export default function EmailComposer({ ticket, emails, onClose, onSent }: Email
 
     setSending(true);
     try {
-      const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-email`;
       const { data: { session } } = await supabase.auth.getSession();
 
       if (!session) {
         alert('Session expirée. Veuillez vous reconnecter.');
         return;
       }
+
+      // Check mailbox provider type to route to correct send function
+      const { data: mailboxInfo } = await supabase
+        .from('mailboxes')
+        .select('provider_type')
+        .eq('id', ticket.mailbox_id)
+        .maybeSingle();
+
+      const isGmail = mailboxInfo?.provider_type === 'gmail';
+      const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${isGmail ? 'send-gmail' : 'send-email'}`;
 
       const latestInboundEmail = emails
         .filter(e => e.direction === 'inbound')
@@ -226,12 +235,14 @@ export default function EmailComposer({ ticket, emails, onClose, onSent }: Email
           body: inlineHtml,
           ticketId: ticket.id,
           inReplyToMessageId: latestInboundEmail?.message_id,
-          idempotencyKey: `<${crypto.randomUUID()}@send>`,
           attachments: attachments.map(a => ({
             filename: a.filename,
             content_type: a.content_type,
             storage_path: a.storage_path
-          }))
+          })),
+          ...(!isGmail && {
+            idempotencyKey: `<${crypto.randomUUID()}@send>`,
+          })
         })
       });
 
